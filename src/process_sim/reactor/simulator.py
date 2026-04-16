@@ -55,14 +55,29 @@ class StyreneReactorModel:
             p_styrene = p_atm * state.styrene / total
             p_h2 = p_atm * state.hydrogen / total
 
-            r1 = max(k.k11 * p_eb - k.k12 * p_styrene * p_h2, 0.0)
+            r1 = k.k11 * p_eb - k.k12 * p_styrene * p_h2
             r2 = max(k.k2 * p_eb, 0.0)
             r3 = max(k.k3 * p_eb, 0.0)
 
-            d_eb = -(r1 + r2 + r3) * dv
             feasible_scale = 1.0
-            if state.eb + d_eb < 0.0:
-                feasible_scale = state.eb / max(-d_eb, 1e-12)
+            component_deltas = {
+                "eb": -(r1 + r2 + r3) * dv,
+                "steam": -(4.0 * r2 + 2.0 * r3) * dv,
+                "styrene": r1 * dv,
+                "hydrogen": (r1 + 6.0 * r2 + 3.0 * r3) * dv,
+            }
+            component_amounts = {
+                "eb": state.eb,
+                "steam": state.steam,
+                "styrene": state.styrene,
+                "hydrogen": state.hydrogen,
+            }
+            for name, delta in component_deltas.items():
+                if delta < 0.0:
+                    feasible_scale = min(
+                        feasible_scale,
+                        component_amounts[name] / max(-delta, 1e-12),
+                    )
 
             r1 *= feasible_scale
             r2 *= feasible_scale
