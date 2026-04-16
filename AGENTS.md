@@ -1,40 +1,120 @@
 # Project Context for AI Agents
 
 ## Project Overview
-京大プロセス設計課題: PFR反応器(Python)と蒸留塔(HYSYS)を組み合わせたプロセスシミュレーション。
+
+このリポジトリは、京都大学のプロセス設計課題を進めるためのものです。
+
+対象は、エチルベンゼンの脱水素によるスチレンモノマー製造プロセスです。反応器設計、分離機設計、プロセス全体の接続、条件調整、最終レポートにつながる技術的根拠の整理を行います。
+
+本リポジトリは、コード置き場ではなく、設計判断と記録も含めた開発基盤として扱います。
+
+## Priority
+
+以下の優先順位で判断してください。
+
+1. ユーザーの明示的な指示
+2. `docs/` に記録された設計判断
+3. 授業で与えられた条件
+4. `data/chem_contest.md`
+5. 過去レポートや一般的な慣例
+
+## Absolute Rules
+
+1. 不明点がある場合は、勝手に仮定して進めないこと。
+2. 捏造しないこと。
+3. 存在しないファイル、未確認の仕様、未取得の結果を書かないこと。
+4. コードを変更した場合は、必要に応じて関連文書も更新すること。
+5. 現状の実装と将来予定の構成を混同しないこと。
+
+## Working Principles
+
+- 本課題はコンテスト課題を強く参考にするが、完全準拠は絶対条件ではない。
+- 判断に迷う場合は、コンテスト課題の丸写しではなく、授業として説明可能な設計を優先する。
+- ただし、ユーザーが明示的に採用していない設計条件を勝手に固定してはならない。
+- HYSYS 側の状態は推測しない。確認できた内容だけを扱う。
+- 化学工学上重要な数値、仕様、前提は、コード内だけで閉じず文書にも残す。
 
 ## Tech Stack
+
 - Package Manager: `uv`
-- Architecture: `src-layout`
-- Configuration: `Pydantic v2`
-- Optimization: `Optuna`
-- Integration: `pywin32` (COM interface for HYSYS)
+- Language: Python 3.11 を基本とする
+- Lint: `ruff`
+- Test: `pytest` を必要に応じて使用
+- Integration: `pywin32` による HYSYS COM 連携を想定
+- HYSYS Version: v14
 
-## Critical Rules (Strictly Enforce)
-1. **Type Safety**: 
-   - 全ての関数に型ヒントを付ける。
-   - `TypedDict` は禁止。`pydantic.BaseModel` を使用。
-2. **Path Handling**:
-   - `pathlib.Path` を使用し、文字列の結合や `os.path` は避ける。
-   - Windows環境だが、コード内は `/` を使用。
-3. **Module Responsibility**:
-   - `src/process_sim/reactor/`: 反応器の物理モデル。
-   - `src/process_sim/separator.py`: HYSYS操作の隠蔽化。
-   - `src/process_sim/flowsheet.py`: プロセス全体の接続。
-   - `scripts/`: 実行および最適化スクリプト。
-4. **HYSYS Interaction**:
-   - COMオブジェクトを直接返さない。必ず Python の `MaterialStream` クラス等に変換して返す。
+Python バージョンは、HYSYS 連携の都合で変更される可能性があります。
 
-## Expected File Structure
-下記のような構ディレクトリ構造を予定しています。
-├── src/
-│   └── process_sim/         # Core package
-│       ├── reactor/         # PFR logic (kinetics.py, solver.py, etc.)
-│       ├── separator.py     # HYSYS COM Wrapper
-│       ├── constants/       # Physical constants (frozen dataclass)
-│       ├── config.py        # Pydantic models for simulation parameters
-│       ├── models/          # Common data structures (MaterialStream, etc.)
-│       └── simulator.py     # Process integration logic
-├── scripts/                 # Execution scripts (Entry points)
-├── docs/                    # Technical documentation
-└── models/                  # HYSYS case files (.hsc)
+## Code Rules
+
+1. 全ての関数に型ヒントを付ける。
+2. `TypedDict` は使用せず、必要に応じて `pydantic.BaseModel` を使う。
+3. パス操作は `pathlib.Path` を使う。
+4. 文字列連結によるパス生成や `os.path` の多用は避ける。
+5. Windows 環境でも、コード中のパス表現は `/` を基本とする。
+6. HYSYS の COM オブジェクトをアプリケーション境界の外に直接出さない。
+7. HYSYS から取得した情報は、Python 側の明示的なモデルに変換して扱う。
+
+## Module Responsibility
+
+- `src/process_sim/reactor/`
+  反応器の物理モデルと計算ロジック
+- `src/process_sim/separator.py`
+  HYSYS を含む分離機操作の隠蔽化
+- `src/process_sim/flowsheet.py`
+  プロセス全体の接続
+- `scripts/`
+  実行スクリプト、試算、最適化の入口
+
+まだ未実装の構成も含まれるため、実際の編集前には必ず現状のファイル構成を確認してください。
+
+## Documentation Rules
+
+- 仮定を新しく置いた場合は、対応する文書も更新する。
+- 設計判断をした場合は、理由が追える形で残す。
+- 試算、比較、検証を行った場合は、作業記録として残す。
+- HYSYS 側で手動変更が発生した場合も、可能な限り文書化する。
+- コード変更時に README や `docs/` の修正が必要なら、同じ作業内で更新する。
+
+## Docs Layout
+
+- `docs/`
+  設計資料全般
+- `docs/reports/`
+  Codex の作業記録、試算記録、比較結果
+- `data/hysis/`
+  HYSYS の `.hsc` などを配置する想定
+
+## Reports Naming Rule
+
+`docs/reports/` はトピック単位で管理します。
+
+ファイル名の形式:
+
+`YYYYMMDD_連番_topic-name.md`
+
+例:
+
+- `20260416_01_reactor-model-setup.md`
+- `20260416_02_equilibrium-check.md`
+- `20260416_03_hysys-interface-notes.md`
+
+1ファイルには、原則として1つの主題だけを書くこと。
+
+## Validation Policy
+
+数値モデルの妥当性確認に使う基準は、現時点では未確定です。
+
+そのため、AI は以下を守ってください。
+
+- 妥当性確認の基準が未確定であることを隠さない。
+- 手計算、文献値、HYSYS 結果のどれを正とするかを勝手に決めない。
+- 検証方法が必要になった時点で、ユーザー確認を優先する。
+
+## What To Avoid
+
+- 勝手な仮定の追加
+- HYSYS 前提の捏造
+- 検証済みと断定できない内容の断定
+- 既存文書の意図を無視した上書き
+- 理由を説明できないリファクタリング
