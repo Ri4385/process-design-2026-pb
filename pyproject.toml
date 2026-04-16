@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Process design workspace for EB to styrene project"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pytest>=9.0.3",
+]
 
 [project.scripts]
 run-reactor-case = "process_sim.cli:run_reactor_case_main"
