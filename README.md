@@ -73,6 +73,10 @@ uv sync
 
 - `src/process_sim/`
   Python 実装を置きます。
+- `src/process_sim/constants/`
+  反応器モデルなどで使う定数を置きます。
+- `src/process_sim/reactor/`
+  反応器計算ロジックと HYSYS 接続境界を置きます。
 - `data/`
   参考資料や入力データを置きます。
 - `data/hysis/`
@@ -81,6 +85,22 @@ uv sync
   設計判断、前提条件、作業記録を置きます。
 - `docs/reports/`
   Codex の作業記録、試算記録、比較結果をトピック単位で残します。
+
+## 反応器の最小実装（Python完結）
+
+- 速度式は過去レポートの式(3.4)〜(3.8)を採用。
+- 速度定数は `src/process_sim/constants/reactor_defaults.py` にまとめています。
+- 反応計算本体は `src/process_sim/reactor/simulator.py` に分離しています。
+- 反応器の I/O 境界は `src/process_sim/reactor/hysys_bridge.py` に分離しています（HYSYS 非依存）。
+
+### 実行
+
+```powershell
+uv run python scripts/run_reactor_case.py
+```
+
+> 現段階では、反応器は Python 側で完結して実行します。
+> HYSYS との連結は分離機側・全体最適化側の設計方針確定後に追加します。
 
 ## ドキュメント運用方針
 
@@ -103,6 +123,11 @@ uv sync
 - `20260416_01_reactor-model-setup.md`
 - `20260416_02_equilibrium-check.md`
 - `20260416_03_hysys-interface-notes.md`
+
+1ファイルには、原則として1つの主題だけを書きます。
+
+加えて、通常は **1PRにつき `docs/reports/` は1ファイル** を基本とします。
+（1PR内で内容が広がっても、同一ファイル内の見出しでまとめます。）
 
 ## 未確定事項
 
