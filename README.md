@@ -96,7 +96,9 @@ uv sync
 ### 実行
 
 ```powershell
-uv run python scripts/run_reactor_case.py
+uv run run-reactor-case
+# あるいは
+python scripts/run_reactor_case.py
 ```
 
 > 現段階では、反応器は Python 側で完結して実行します。

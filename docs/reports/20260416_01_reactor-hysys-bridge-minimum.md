@@ -34,6 +34,9 @@
 - 反応器の I/O 境界は Protocol で切り、HYSYS 依存コードは持たない。
 - `scripts/run_reactor_case.py` は Python 単独で動く最小デモにする。
 
+- 実行系は `pyproject.toml` の `project.scripts` で `run-reactor-case` を定義し、
+  かつ `scripts/run_reactor_case.py` 直実行でも動くように `src/` を import path へ追加。
+
 ## 既知の制約
 
 - 妥当性確認の採点基準（手計算・文献・HYSYSのどれを正とするか）は未確定。
