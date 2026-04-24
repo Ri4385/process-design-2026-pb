@@ -46,7 +46,7 @@
 ## 参考資料
 
 - コンテスト課題: `data/chem_contest.md`
-- 過去レポート: `data/report_md/repoet_7.md`
+- 過去レポート: `data/report_md/report_7.md`
 
 コンテスト課題は主要な参考資料ですが、最終的な設計判断は授業の目的と実際の検討内容を優先します。
 

@@ -5,6 +5,8 @@ from process_sim.constants.reactor_defaults import (
     KineticsConstants,
     ReactorConfigDefaults,
     ReactorOperationDefaults,
+    SpeciesThermo,
+    ThermoConstants,
     UniversalConstants,
 )
 
@@ -13,5 +15,7 @@ __all__ = [
     "KineticsConstants",
     "ReactorConfigDefaults",
     "ReactorOperationDefaults",
+    "SpeciesThermo",
+    "ThermoConstants",
     "UniversalConstants",
 ]
