@@ -3,29 +3,36 @@
 ## 目的
 
 この文書は、反応器モデルの恒久的な設計メモとして使う。
-一時的な作業記録ではなく、現時点での実装状態、入出力、出力の意味を上書きしながら更新する。
+現時点の実装状態、設計上の意味、入出力、ログ項目を上書き更新しながら管理する。
 
-## 現在の実装範囲
+## 現在の実装方針
 
-- 現在実装されているのは、`src/process_sim/reactor/simulator.py` の `StyreneReactorModel` である。
-- これは Python 側の簡易 PFR モデルである。
-- HYSYS の内部反応器を直接操作しているのではなく、`src/process_sim/reactor/hysys_bridge.py` の `ReactorService` がタグ値を読み書きして Python モデルを 1 回実行する構成である。
-- 入口条件として使っているのは `eb`、`steam`、`pressure_kpa`、`temperature_c` である。
-- `ReactorService.run_once()` では、入口の `styrene`、`hydrogen`、`benzene`、`toluene`、`co2` は 0.0 固定で与えている。
+- 反応器サイドは HYSYS を使わず、純 Python で計算する。
+- モデル本体は `src/process_sim/reactor/simulator.py` の `StyreneReactorModel` である。
+- 採用している構成は 3 段断熱 PFR であり、各段の入口で中間加熱されたものとして計算する。
+- 現時点では、`data/report_md/report_7.md` で使われている 3 反応の速度式を採用している。
+- 圧力損失は入れていない。
+- 熱損失は入れていない。
+- 反応器内の半径方向分布は持たず、軸方向 1 次元で扱う。
+- 気体は理想気体として扱う。
+
+## 採用している反応
+
+- 主反応
+  - `EB ⇆ SM + H2`
+- 副反応
+  - `EB + 4H2O -> BZ + 2CO2 + 6H2`
+  - `EB + 2H2O -> TL + CO2 + 3H2`
 
 ## モデルの計算内容
 
-- 温度からアレニウス式で `k11`、`k12`、`k2`、`k3` を計算する。
-- 圧力と各成分流量から、`p_eb`、`p_styrene`、`p_h2` を全圧基準の分圧として計算する。
-- 主反応速度は `r1 = k11 * p_eb - k12 * p_styrene * p_h2` である。
-- 主反応は可逆として扱っており、`r1 < 0` のときは逆反応を表す。
-- 副反応速度は `r2 = k2 * p_eb`、`r3 = k3 * p_eb` を 0 以上に制限している。
-- 反応器体積を `steps` 分割し、各ステップで物質収支を更新している。
-- 各ステップでは `eb`、`steam`、`styrene`、`hydrogen` が負にならないように `feasible_scale` で反応速度を縮小している。
+- 各段の入口温度からアレニウス式で `k11`、`k12`、`k2`、`k3` を計算する。
+- 各成分の分圧から反応速度を求める。
+- 物質収支と断熱熱収支を連立して、各段を軸方向に積分する。
+- 中間加熱そのものは反応器外で行うとみなし、各段の入口温度を条件として与える。
+- 各段の再加熱に必要な熱量は、ログとして別に計算する。
 
-## データモデル
-
-### 入力
+## 入力
 
 - `ReactorFeed`
   - `eb` [kmol/h]
@@ -35,103 +42,83 @@
   - `benzene` [kmol/h]
   - `toluene` [kmol/h]
   - `co2` [kmol/h]
+  - `ethylene` [kmol/h]
+  - `methane` [kmol/h]
+  - `co` [kmol/h]
 - `ReactorRunConditions`
   - `pressure_kpa` [kPa]
-  - `temperature_c` [degC]
-  - `reactor_volume_m3` [m^3]
-  - `steps` [-]
+  - `stage_inlet_temperatures_c` [degC, degC, degC]
+  - `stage_lengths_m` [m, m, m]
+  - `inlet_superficial_velocity_m_per_s` [m/s]
+  - `segments_per_stage` [-]
+  - `profile_points_per_stage` [-]
 
-### 出力
+## 出力
 
 - `ReactorResult.outlet`
-  - 反応器出口の各成分流量を持つ。
+  - 最終段出口の状態
 - `ReactorResult.eb_conversion`
-  - `max(feed.eb - outlet.eb, 0.0) / feed.eb`
-  - EB 転化率である。
+  - EB 転化率
 - `ReactorResult.styrene_selectivity`
-  - `(outlet.styrene - feed.styrene) / converted`
-  - EB の正味消費量に対するスチレン生成量である。
-  - 現在の実装では 0 未満にならないようにして返している。
+  - スチレン選択率
+- `ReactorResult.log`
+  - 反応器ログ
 
-## タグと意味
+## ログ
 
-- `RCTR_EB_IN`
-  - 反応器入口の EB 流量 [kmol/h]
-- `RCTR_H2O_IN`
-  - 反応器入口の水蒸気流量 [kmol/h]
-- `RCTR_P_IN`
-  - 反応器入口圧力 [kPa]
-- `RCTR_T_IN`
-  - 反応器入口温度 [degC]
-- `RCTR_EB_OUT`
-  - 反応器出口の EB 流量 [kmol/h]
-- `RCTR_H2O_OUT`
-  - 反応器出口の水蒸気流量 [kmol/h]
-- `RCTR_STY_OUT`
-  - 反応器出口のスチレン流量 [kmol/h]
-- `RCTR_H2_OUT`
-  - 反応器出口の水素流量 [kmol/h]
-- `RCTR_BZ_OUT`
-  - 反応器出口のベンゼン流量 [kmol/h]
-- `RCTR_TOL_OUT`
-  - 反応器出口のトルエン流量 [kmol/h]
-- `RCTR_CO2_OUT`
-  - 反応器出口の二酸化炭素流量 [kmol/h]
-- `RCTR_X_EB`
-  - EB 転化率 [-]
+ログ不足を避けるため、現在は以下を返す。
 
-## 出力の読み方
+- `ReactorRunLog.cross_section_area_m2`
+  - 入口線速から逆算した反応器断面積
+- `ReactorRunLog.inlet_volumetric_flow_m3_s`
+  - 第1段入口の体積流量
+- `ReactorRunLog.stage_logs`
+  - 各段の入口温度、出口温度、段長、入口線速、出口線速、転化率、選択率、再加熱負荷
+- `ReactorRunLog.profile`
+  - 軸方向の温度、転化率、選択率、各成分流量の記録点
 
-既定条件は以下である。
+CLI の既定出力は、生の JSON ではなく人間向けのテキストログにしている。
+見る順番は次の通りである。
 
-- EB 入口流量 `700.0 kmol/h`
-- 水蒸気入口流量 `3500.0 kmol/h`
-- 圧力 `152.0 kPa`
-- 温度 `600.0 degC`
-- 反応器体積 `15.0 m^3`
-- 分割数 `200`
+- `全体サマリー`
+  - 最終出口温度、EB転化率、スチレン選択率を確認する
+- `出口流量`
+  - 最終的にどの成分が何 kmol/h 出ているかを確認する
+- `入口から出口までの差分`
+  - 反応器列全体で、EB や Steam がどれだけ減り、Styrene や副生成物がどれだけ増えたかを見る
+- `各段ログ`
+  - 各段での温度低下、線速変化、段ごとの転化率と選択率、次段に入る前の再加熱負荷を確認する
+  - さらに各段での成分流量差分を出し、段内で何が増減したかを読む
 
-この条件で現在のコードを実行すると、以下の値が出る。
+生の構造化データが必要な場合は、CLI の `--json` オプションで従来どおり JSON を出力できる。
 
-- `RCTR_EB_OUT = 556.960856277843`
-- `RCTR_H2O_OUT = 3459.9428787117663`
-- `RCTR_STY_OUT = 127.60338851060494`
-- `RCTR_H2_OUT = 187.68907044295256`
-- `RCTR_BZ_OUT = 4.592805432563649`
-- `RCTR_TOL_OUT = 10.842949778988588`
-- `RCTR_CO2_OUT = 20.02856064411589`
-- `RCTR_X_EB = 0.20434163388879564`
+## 参照ケース
 
-意味は次の通りである。
+CLI の既定値は、`data/report_md/report_7.md` の 3 段断熱反応器の最適化結果を参照したケースである。
 
-- `RCTR_*_OUT`
-  - 各成分の出口流量である。
-- `RCTR_X_EB`
-  - EB の転化率である。
-- `RCTR_EB_OUT`
-  - 入口の EB のうち未反応で残った量である。
-- `RCTR_STY_OUT`
-  - 生成したスチレンの出口流量である。
-- `RCTR_H2_OUT`
-  - 主反応と副反応で発生した水素の出口流量である。
-- `RCTR_BZ_OUT`
-  - 副反応 `r2` で生成したベンゼンの出口流量である。
-- `RCTR_TOL_OUT`
-  - 副反応 `r3` で生成したトルエンの出口流量である。
-- `RCTR_CO2_OUT`
-  - 副反応で生成した二酸化炭素の出口流量である。
-- `RCTR_H2O_OUT`
-  - 副反応で消費された後の水蒸気流量である。
+- 圧力 `101.325 kPa`
+- 各段入口温度 `545.4, 571.0, 605.9 degC`
+- 各段長 `3.09, 3.09, 3.09 m`
+- 入口線速 `1.93 m/s`
+- 入口 EB `605.9 kmol/h`
+- 入口 steam `3029.5 kmol/h`
+- 入口不純物
+  - `styrene = 0.0606 kmol/h`
+  - `benzene = 0.0606 kmol/h`
+  - `toluene = 0.0606 kmol/h`
+
+この参照ケースで現在のコードを実行すると、概ね次の傾向になる。
+
+- 第1段で大きく温度が低下する
+- 第2段、第3段でも断熱的に温度が低下する
+- 転化率は段ごとに増加する
+- 選択率は段が進むほどやや低下する
+- 再加熱負荷は段間ログで確認できる
 
 ## 注意点
 
-- これらの値は現在の Python モデルの出力であり、妥当性確認済みの設計値ではない。
-- 手計算、文献値、HYSYS 結果のどれを基準に検証するかは、まだ確定していない。
-- `ReactorService` 経由では入口の生成物側成分を 0.0 固定で与えているため、リサイクルや入口生成物同伴の影響はまだ表現していない。
-- 圧力降下、熱収支、触媒劣化、平衡の独立検証は、コード上ではまだ扱っていない。
-- `styrene_selectivity` は計算されているが、現在の HYSYS タグ出力には接続されていない。
-
-## 更新ルール
-
-- 反応器の恒久仕様はこのファイルを上書き更新する。
-- その時点の一時的な試行錯誤や作業メモは `docs/reports/` に書く。
+- これは設計を前進させるための 3 段断熱・純 Python モデルであり、最終検証済みの設計値ではない。
+- 妥当性確認の基準はまだ確定していない。
+- どの基準を正とするかは、手計算、文献値、HYSYS 結果のどれを採用するかを別途決める必要がある。
+- 6 反応の詳細モデルや圧力損失モデルは、現時点では未採用である。
+- HYSYS bridge は現行の反応器中核設計から外している。

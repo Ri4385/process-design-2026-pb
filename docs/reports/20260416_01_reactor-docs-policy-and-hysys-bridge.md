@@ -1,8 +1,8 @@
-# 20260416_01_reactor-docs-policy-and-hysys-bridge
+# 20260416_01_reactor-docs-policy-and-python-reactor
 
 ## 主題
 
-反応器まわりの文書運用と、現在の HYSYS ブリッジ実装の最小範囲を整理する。
+反応器まわりの文書運用と、HYSYS 非依存の反応器モデルへの整理を記録する。
 
 ## 今回の方針
 
@@ -11,15 +11,14 @@
 - `docs/reports/` は PR 単位の作業記録だけを書く。
 - 同一 PR で反応器に関する記録が増えても、`docs/reports/` は 1 ファイルにまとめる。
 
-## 現在の HYSYS ブリッジ実装
+## 今回の整理内容
 
-- Python 側で `StyreneReactorModel` を実行する。
-- HYSYS 側とは `ReactorService` のタグ入出力で接続する。
-- 現在の入口タグは `EB`、`steam`、`pressure`、`temperature` のみである。
-- 入口の `styrene`、`hydrogen`、`benzene`、`toluene`、`co2` は `ReactorService.run_once()` 内で 0.0 固定で与えている。
-- 現在の出口タグは各成分出口流量と `EB` 転化率である。
+- 反応器本体は HYSYS 非依存の純 Python モデルへ整理した。
+- 3 段断熱 PFR として計算するようにした。
+- 各段の温度、転化率、選択率、再加熱負荷をログとして残すようにした。
+- 既存の `hysys_bridge.py` は反応器中核から外した。
 
 ## 補足
 
-- 反応器モデルの現状仕様、入出力、出力の意味、既定条件での出力例は `docs/reactor.md` に整理した。
-- このファイルは今回の PR における運用整理の記録として残す。
+- 反応器モデルの現状仕様、入出力、ログ項目、参照ケースは `docs/reactor.md` に整理した。
+- このファイルは今回の PR における設計整理の記録として残す。

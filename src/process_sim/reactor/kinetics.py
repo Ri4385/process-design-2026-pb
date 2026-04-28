@@ -22,11 +22,20 @@ def arrhenius_rate_constants(
     universal: UniversalConstants,
 ) -> RateConstants:
     """アレニウス式で速度定数を返す。"""
-    r = universal.gas_constant_kj_per_kmol_k
+    r = universal.gas_constant_j_per_mol_k
+    per_hour_to_per_second = 1.0 / 3600.0
 
     return RateConstants(
-        k11=kinetics.g11 * math.exp(-kinetics.e11_kj_per_kmol / (r * temperature_k)),
-        k12=kinetics.g12 * math.exp(-kinetics.e12_kj_per_kmol / (r * temperature_k)),
-        k2=kinetics.g2 * math.exp(-kinetics.e2_kj_per_kmol / (r * temperature_k)),
-        k3=kinetics.g3 * math.exp(-kinetics.e3_kj_per_kmol / (r * temperature_k)),
+        k11=per_hour_to_per_second
+        * kinetics.k11_pre_exponential
+        * math.exp(-kinetics.k11_activation_energy_j_per_mol / (r * temperature_k)),
+        k12=per_hour_to_per_second
+        * kinetics.k12_pre_exponential
+        * math.exp(-kinetics.k12_activation_energy_j_per_mol / (r * temperature_k)),
+        k2=per_hour_to_per_second
+        * kinetics.k2_pre_exponential
+        * math.exp(-kinetics.k2_activation_energy_j_per_mol / (r * temperature_k)),
+        k3=per_hour_to_per_second
+        * kinetics.k3_pre_exponential
+        * math.exp(-kinetics.k3_activation_energy_j_per_mol / (r * temperature_k)),
     )
