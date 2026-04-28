@@ -34,7 +34,7 @@ class ThermoConstants:
     methane: SpeciesThermo = SpeciesThermo(19.252, 5.213e-2, 1.197e-5, -1.132e-8, -74_900.0)
     ethylene: SpeciesThermo = SpeciesThermo(3.806, 1.566e-1, -8.349e-5, 1.755e-8, 52_300.0)
     co2: SpeciesThermo = SpeciesThermo(19.796, 7.344e-2, -5.602e-5, 1.715e-8, -393_800.0)
-    benzene: SpeciesThermo = SpeciesThermo(-33.919, 4.74e-1, -2.942e-4, 7.130e-8, 83_000.0)
+    benzene: SpeciesThermo = SpeciesThermo(-33.919, 4.744e-1, -2.942e-4, 7.130e-8, 83_000.0)
     steam: SpeciesThermo = SpeciesThermo(32.244, 1.924e-3, 1.056e-5, -3.597e-9, -242_000.0)
     toluene: SpeciesThermo = SpeciesThermo(-24.356, 5.125e-1, -2.766e-4, 4.911e-8, 50_000.0)
     eb: SpeciesThermo = SpeciesThermo(-43.101, 7.072e-1, -4.811e-4, 1.301e-7, 29_800.0)
