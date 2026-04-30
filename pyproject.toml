@@ -9,7 +9,7 @@ description = "Process design workspace for EB to styrene project"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pywin32>=311",
+    "pywin32>=311; sys_platform == 'win32'",
 ]
 
 [dependency-groups]
