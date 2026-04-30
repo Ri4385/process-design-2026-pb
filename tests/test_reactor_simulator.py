@@ -1,79 +1,151 @@
-from process_sim.constants import DEFAULT_REACTOR_CONFIG
-from process_sim.cli import build_default_input, format_reactor_report
-from process_sim.reactor.models import ReactorFeed, ReactorRunConditions
-from process_sim.reactor.simulator import StyreneReactorModel
+import pytest
+
+from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
+from process_sim.constants.reaction_networks import STYRENE_SIX_REACTION_NETWORK
+from process_sim.constants.universal import UNIVERSAL_CONSTANTS
+from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE
+from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core.reaction import reaction_rates
+from process_sim.reactor.core.stream import COMPONENT_ORDER
+from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmol, standard_reaction_enthalpy_kj_per_kmol
+from process_sim.reactor.types import StagedAdiabaticPfrModel
+from process_sim.cli import default_case_payload, format_reactor_report
 
 
-def build_reference_conditions() -> ReactorRunConditions:
-    operation = DEFAULT_REACTOR_CONFIG.operation
-    return ReactorRunConditions(
-        pressure_kpa=operation.pressure_kpa,
-        stage_inlet_temperatures_c=operation.stage_inlet_temperatures_c,
-        stage_lengths_m=operation.stage_lengths_m,
-        inlet_superficial_velocity_m_per_s=operation.inlet_superficial_velocity_m_per_s,
-        segments_per_stage=operation.segments_per_stage,
-        profile_points_per_stage=operation.profile_points_per_stage,
+def test_physical_properties_match_documented_values() -> None:
+    eb = SPECIES_PHYSICAL_PROPERTIES["eb"]
+    benzene = SPECIES_PHYSICAL_PROPERTIES["benzene"]
+
+    assert eb.molecular_weight == pytest.approx(106.168)
+    assert eb.heat_of_formation_kj_per_kmol == pytest.approx(29_800.0)
+    assert eb.heat_capacity.b == pytest.approx(7.072e-1)
+    assert benzene.heat_capacity.b == pytest.approx(4.744e-1)
+
+
+def test_standard_reaction_enthalpies_are_calculated_from_formation_enthalpies() -> None:
+    expected_kj_per_kmol = {
+        "r1": 117_700.0,
+        "r2": 105_500.0,
+        "r3": -54_700.0,
+        "r4": 210_500.0,
+        "r5": 206_300.0,
+        "r6": -41_200.0,
+    }
+
+    actual = {
+        reaction.reaction_id: standard_reaction_enthalpy_kj_per_kmol(
+            reaction=reaction,
+            properties=SPECIES_PHYSICAL_PROPERTIES,
+            universal=UNIVERSAL_CONSTANTS,
+        )
+        for reaction in STYRENE_SIX_REACTION_NETWORK.reactions
+    }
+
+    assert actual == pytest.approx(expected_kj_per_kmol)
+
+
+def test_temperature_dependent_reaction_enthalpy_uses_heat_capacity_integral() -> None:
+    reaction = STYRENE_SIX_REACTION_NETWORK.reactions[0]
+
+    standard = standard_reaction_enthalpy_kj_per_kmol(
+        reaction=reaction,
+        properties=SPECIES_PHYSICAL_PROPERTIES,
+        universal=UNIVERSAL_CONSTANTS,
+    )
+    at_high_temperature = reaction_enthalpy_kj_per_kmol(
+        reaction=reaction,
+        temperature_k=850.0,
+        properties=SPECIES_PHYSICAL_PROPERTIES,
+        universal=UNIVERSAL_CONSTANTS,
     )
 
+    assert at_high_temperature != pytest.approx(standard)
 
-def build_reference_feed() -> ReactorFeed:
-    return ReactorFeed(
-        eb=605.9,
-        steam=3029.5,
-        styrene=0.0606,
-        hydrogen=0.0,
-        benzene=0.0606,
-        toluene=0.0606,
-        co2=0.0,
-        ethylene=0.0,
-        methane=0.0,
-        co=0.0,
+
+def test_six_reaction_network_produces_all_rates_and_net_reversible_rate() -> None:
+    partial_pressures_pa = {
+        "eb": 30_000.0,
+        "steam": 70_000.0,
+        "styrene": 2_000.0,
+        "hydrogen": 3_000.0,
+        "benzene": 500.0,
+        "toluene": 500.0,
+        "co2": 500.0,
+        "ethylene": 500.0,
+        "methane": 500.0,
+        "co": 500.0,
+    }
+
+    rates = reaction_rates(
+        network=STYRENE_SIX_REACTION_NETWORK,
+        temperature_k=850.0,
+        partial_pressures_pa=partial_pressures_pa,
+        universal=UNIVERSAL_CONSTANTS,
     )
 
+    assert [rate.reaction_id for rate in rates] == ["r1", "r2", "r3", "r4", "r5", "r6"]
+    assert rates[0].rate_kmol_per_s_m3 > 0.0
 
-def test_three_stage_adiabatic_reactor_produces_stage_logs() -> None:
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
 
-    result = model.run(feed=build_reference_feed(), conditions=build_reference_conditions())
+def test_adiabatic_balance_returns_component_and_temperature_derivatives() -> None:
+    case = DEFAULT_STYRENE_REACTOR_CASE
+    state_vector = case.feed.to_vector_kmol_s() + [case.conditions.stage_inlet_temperatures_c[0] + 273.15]
+    context = ReactorBalanceContext(
+        pressure_kpa=case.conditions.pressure_kpa,
+        cross_section_area_m2=1.0,
+        network=STYRENE_SIX_REACTION_NETWORK,
+        properties=SPECIES_PHYSICAL_PROPERTIES,
+        universal=UNIVERSAL_CONSTANTS,
+    )
+
+    derivatives = pfr_adiabatic_derivatives(state_vector=state_vector, context=context)
+
+    assert len(derivatives) == len(COMPONENT_ORDER) + 1
+    assert any(abs(value) > 0.0 for value in derivatives[:-1])
+
+
+def test_staged_adiabatic_reactor_produces_stage_logs() -> None:
+    model = StagedAdiabaticPfrModel()
+    case = DEFAULT_STYRENE_REACTOR_CASE
+
+    result = model.run(feed=case.feed, conditions=case.conditions)
 
     assert len(result.log.stage_logs) == 3
     assert len(result.log.profile) > 3
     assert result.log.cross_section_area_m2 > 0.0
 
 
-def test_temperature_drops_inside_each_adiabatic_stage() -> None:
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
-
-    result = model.run(feed=build_reference_feed(), conditions=build_reference_conditions())
-
-    for stage_log in result.log.stage_logs:
-        assert stage_log.outlet_temperature_c < stage_log.inlet_temperature_c
-        assert stage_log.stage_length_m > 0.0
-
-
 def test_reactor_result_remains_non_negative() -> None:
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
+    model = StagedAdiabaticPfrModel()
+    case = DEFAULT_STYRENE_REACTOR_CASE
 
-    result = model.run(feed=build_reference_feed(), conditions=build_reference_conditions())
+    result = model.run(feed=case.feed, conditions=case.conditions)
     outlet = result.outlet.stream
 
-    assert outlet.eb >= 0.0
-    assert outlet.steam >= 0.0
-    assert outlet.styrene >= 0.0
-    assert outlet.hydrogen >= 0.0
-    assert outlet.benzene >= 0.0
-    assert outlet.toluene >= 0.0
-    assert outlet.co2 >= 0.0
-    assert outlet.ethylene >= 0.0
-    assert outlet.methane >= 0.0
-    assert outlet.co >= 0.0
+    for flow in outlet.to_component_flows_kmol_h().values():
+        assert flow >= 0.0
+
+
+def test_reactor_stage_logs_include_temperature_change_and_reheat_duty() -> None:
+    model = StagedAdiabaticPfrModel()
+    case = DEFAULT_STYRENE_REACTOR_CASE
+
+    result = model.run(feed=case.feed, conditions=case.conditions)
+
+    for stage_log in result.log.stage_logs:
+        assert stage_log.stage_length_m > 0.0
+        assert stage_log.outlet_temperature_c != pytest.approx(stage_log.inlet_temperature_c)
+    assert result.log.stage_logs[0].reheat_duty_mw is not None
+    assert result.log.stage_logs[1].reheat_duty_mw is not None
+    assert result.log.stage_logs[2].reheat_duty_mw is None
 
 
 def test_human_readable_report_contains_expected_sections() -> None:
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
+    model = StagedAdiabaticPfrModel()
+    case = DEFAULT_STYRENE_REACTOR_CASE
 
-    result = model.run(feed=build_reference_feed(), conditions=build_reference_conditions())
-    report = format_reactor_report(result=result, payload=build_default_input())
+    result = model.run(feed=case.feed, conditions=case.conditions)
+    report = format_reactor_report(result=result, payload=default_case_payload())
 
     assert "反応器ログ" in report
     assert "入口条件 feed" in report

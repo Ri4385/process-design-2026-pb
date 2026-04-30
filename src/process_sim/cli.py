@@ -6,54 +6,48 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from process_sim.constants import DEFAULT_REACTOR_CONFIG
-from process_sim.reactor.models import ReactorFeed, ReactorResult, ReactorRunConditions, ReactorStageLog, ReactorStream
-from process_sim.reactor.simulator import StyreneReactorModel
+from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
+from process_sim.reactor.core.models import ReactorResult, ReactorRunConditions, ReactorStageLog
+from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed, ReactorStream
+from process_sim.reactor.types import StagedAdiabaticPfrModel
 
 
-def build_default_input() -> dict[str, Any]:
-    """反応器の参照ケース入力を返す。"""
-    return {
-        "feed": {
-            "eb": 605.9,
-            "steam": 3029.5,
-            "styrene": 0.0606,
-            "hydrogen": 0.0,
-            "benzene": 0.0606,
-            "toluene": 0.0606,
-            "co2": 0.0,
-            "ethylene": 0.0,
-            "methane": 0.0,
-            "co": 0.0,
-        },
-        "conditions": {
-            "pressure_kpa": DEFAULT_REACTOR_CONFIG.operation.pressure_kpa,
-            "stage_inlet_temperatures_c": list(DEFAULT_REACTOR_CONFIG.operation.stage_inlet_temperatures_c),
-            "stage_lengths_m": list(DEFAULT_REACTOR_CONFIG.operation.stage_lengths_m),
-            "inlet_superficial_velocity_m_per_s": DEFAULT_REACTOR_CONFIG.operation.inlet_superficial_velocity_m_per_s,
-            "segments_per_stage": DEFAULT_REACTOR_CONFIG.operation.segments_per_stage,
-            "profile_points_per_stage": DEFAULT_REACTOR_CONFIG.operation.profile_points_per_stage,
-        },
-    }
+def default_case_payload() -> dict[str, Any]:
+    """既定ケースを JSON 化しやすい辞書で返す。"""
+    return asdict(DEFAULT_STYRENE_REACTOR_CASE)
 
 
 def _deep_update(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_update(base[key], value)
+            _deep_update(cast(dict[str, Any], base[key]), cast(dict[str, Any], value))
         else:
             base[key] = value
     return base
 
 
 def apply_input_overrides(values: dict[str, Any], input_json: Path | None) -> dict[str, Any]:
+    """入力 JSON が指定された場合だけ既定ケースを上書きする。"""
     if input_json is None:
         return values
 
     loaded = json.loads(input_json.read_text(encoding="utf-8"))
-    return _deep_update(values, loaded)
+    if not isinstance(loaded, dict):
+        raise ValueError("input JSON must be an object")
+    return _deep_update(values, cast(dict[str, Any], loaded))
+
+
+def case_from_payload(payload: dict[str, Any]) -> ReactorCase:
+    """辞書から反応器ケースを作る。"""
+    conditions_payload = dict(payload["conditions"])
+    conditions_payload["stage_inlet_temperatures_c"] = tuple(conditions_payload["stage_inlet_temperatures_c"])
+    conditions_payload["stage_lengths_m"] = tuple(conditions_payload["stage_lengths_m"])
+    return ReactorCase(
+        feed=ReactorFeed(**payload["feed"]),
+        conditions=ReactorRunConditions(**conditions_payload),
+    )
 
 
 def parse_run_reactor_args() -> argparse.Namespace:
@@ -86,34 +80,21 @@ def _stream_total_line(label: str, stream: ReactorStream) -> str:
 
 
 def _stream_component_lines(label: str, stream: ReactorStream) -> list[str]:
-    return [
-        f"- {label} EB: {stream.eb:.2f} kmol/h",
-        f"- {label} Steam: {stream.steam:.2f} kmol/h",
-        f"- {label} Styrene: {stream.styrene:.2f} kmol/h",
-        f"- {label} Hydrogen: {stream.hydrogen:.2f} kmol/h",
-        f"- {label} Benzene: {stream.benzene:.2f} kmol/h",
-        f"- {label} Toluene: {stream.toluene:.2f} kmol/h",
-        f"- {label} CO2: {stream.co2:.2f} kmol/h",
-    ]
+    flows = stream.to_component_flows_kmol_h()
+    return [f"- {label} {name}: {flows[name]:.2f} kmol/h" for name in COMPONENT_ORDER]
 
 
 def _stage_delta_lines(stage_log: ReactorStageLog) -> list[str]:
-    inlet = stage_log.inlet
-    outlet = stage_log.outlet
-    return [
-        f"- EB: {_format_flow_delta(inlet.eb, outlet.eb)}",
-        f"- Steam: {_format_flow_delta(inlet.steam, outlet.steam)}",
-        f"- Styrene: {_format_flow_delta(inlet.styrene, outlet.styrene)}",
-        f"- Hydrogen: {_format_flow_delta(inlet.hydrogen, outlet.hydrogen)}",
-        f"- Benzene: {_format_flow_delta(inlet.benzene, outlet.benzene)}",
-        f"- Toluene: {_format_flow_delta(inlet.toluene, outlet.toluene)}",
-        f"- CO2: {_format_flow_delta(inlet.co2, outlet.co2)}",
-    ]
+    inlet = stage_log.inlet.to_component_flows_kmol_h()
+    outlet = stage_log.outlet.to_component_flows_kmol_h()
+    return [f"- {name}: {_format_flow_delta(inlet[name], outlet[name])}" for name in COMPONENT_ORDER]
 
 
 def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str:
-    feed = ReactorFeed(**payload["feed"])
+    feed = case_from_payload(payload).feed
     outlet = result.outlet.stream
+    feed_flows = feed.to_component_flows_kmol_h()
+    outlet_flows = outlet.to_component_flows_kmol_h()
 
     lines = [
         "反応器ログ",
@@ -136,13 +117,7 @@ def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str
         *_stream_component_lines("出口", outlet),
         "",
         "入口から出口までの差分",
-        f"- EB: {_format_flow_delta(feed.eb, outlet.eb)}",
-        f"- Steam: {_format_flow_delta(feed.steam, outlet.steam)}",
-        f"- Styrene: {_format_flow_delta(feed.styrene, outlet.styrene)}",
-        f"- Hydrogen: {_format_flow_delta(feed.hydrogen, outlet.hydrogen)}",
-        f"- Benzene: {_format_flow_delta(feed.benzene, outlet.benzene)}",
-        f"- Toluene: {_format_flow_delta(feed.toluene, outlet.toluene)}",
-        f"- CO2: {_format_flow_delta(feed.co2, outlet.co2)}",
+        *[f"- {name}: {_format_flow_delta(feed_flows[name], outlet_flows[name])}" for name in COMPONENT_ORDER],
         "",
         "各段ログ",
     ]
@@ -152,7 +127,7 @@ def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str
             [
                 f"第{stage_log.stage_index}段",
                 f"- 温度: {stage_log.inlet_temperature_c:.2f} -> {stage_log.outlet_temperature_c:.2f} degC",
-                f"- 温度低下: {stage_log.outlet_temperature_c - stage_log.inlet_temperature_c:+.2f} degC",
+                f"- 温度変化: {stage_log.outlet_temperature_c - stage_log.inlet_temperature_c:+.2f} degC",
                 f"- 段長: {stage_log.stage_length_m:.2f} m",
                 f"- 線速: {stage_log.inlet_superficial_velocity_m_per_s:.3f} -> {stage_log.outlet_superficial_velocity_m_per_s:.3f} m/s",
                 f"- EB転化率: {_format_percentage(stage_log.eb_conversion)}",
@@ -171,13 +146,12 @@ def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str
 def run_reactor_case_main() -> None:
     args = parse_run_reactor_args()
 
-    payload = build_default_input()
+    payload = default_case_payload()
     payload = apply_input_overrides(payload, args.input_json)
 
-    feed = ReactorFeed(**payload["feed"])
-    conditions = ReactorRunConditions(**payload["conditions"])
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
-    result = model.run(feed=feed, conditions=conditions)
+    reactor_case = case_from_payload(payload)
+    model = StagedAdiabaticPfrModel()
+    result = model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
 
     if not args.json:
         print(format_reactor_report(result=result, payload=payload))
