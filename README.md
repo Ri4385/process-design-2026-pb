@@ -46,7 +46,7 @@
 ## 参考資料
 
 - コンテスト課題: `data/chem_contest.md`
-- 過去レポート: `data/report_md/report_7.md`
+- 過去レポート: `data/report_md/~`, 
 
 コンテスト課題は主要な参考資料ですが、最終的な設計判断は授業の目的と実際の検討内容を優先します。
 
@@ -85,20 +85,13 @@ uv sync
   設計判断、前提条件、作業記録を置きます。
 - `docs/reports/`
   Codex の作業記録、試算記録、比較結果をトピック単位で残します。
-
-## 反応器の最小実装（Python完結）
-
-- 速度式は過去レポートの式(3.4)〜(3.8)を採用。
-- 速度定数は `src/process_sim/constants/reactor_defaults.py` にまとめています。
-- 反応計算本体は `src/process_sim/reactor/simulator.py` に分離しています。
-- 反応器の I/O 境界は `src/process_sim/reactor/hysys_bridge.py` に分離しています（HYSYS 非依存）。
+- `docs/overview.md`
+  設定条件などの概要が書いてあります
 
 ### 実行
 
 ```powershell
 uv run run-reactor-case
-# あるいは
-python scripts/run_reactor_case.py
 ```
 
 > 現段階では、反応器は Python 側で完結して実行します。
