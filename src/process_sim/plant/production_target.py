@@ -31,6 +31,7 @@ DEFAULT_STEAM_TO_EB_RATIO = 5.0
 DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H = 0.1
 DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H = 0.1
 DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H = 0.1
+DEFAULT_MAX_RUNS = 5
 DEFAULT_MIN_RUNS = 1
 HYSYS_INVALID_SENTINEL = -32767.0
 
@@ -71,7 +72,7 @@ class FeedTuningOptions:
     """高速 feed 調整の設定。"""
 
     target_sm_kmol_h: float = DEFAULT_TARGET_SM_KMOL_H
-    max_runs: int = 5
+    max_runs: int = DEFAULT_MAX_RUNS
     min_runs: int = DEFAULT_MIN_RUNS
     sm_tolerance_kmol_h: float = DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H
     eb_recycle_tolerance_kmol_h: float = DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H
@@ -233,11 +234,12 @@ def tune_fresh_feed_fast(
                 runs=tuple(runs),
             )
 
-        fresh_feed, eb_recycle, water_recycle = estimate_next_feed_from_run(
-            run=run,
-            target_sm_kmol_h=options.target_sm_kmol_h,
-            feed_policy=options.feed_policy,
-        )
+        if run_index < options.max_runs:
+            fresh_feed, eb_recycle, water_recycle = estimate_next_feed_from_run(
+                run=run,
+                target_sm_kmol_h=options.target_sm_kmol_h,
+                feed_policy=options.feed_policy,
+            )
 
     logger.info("feed tuning did not converge in %d runs", options.max_runs)
     return FeedTuningResult(
