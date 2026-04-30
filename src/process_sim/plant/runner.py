@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-import json
 import logging
 from pathlib import Path
 import subprocess
@@ -12,6 +11,7 @@ import time
 from typing import Any
 
 from process_sim.plant.models import PlantRunRecord
+from process_sim.plant.summary import format_plant_run_summary
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.separator.hysys_io import run_hysys_separation_once
@@ -72,7 +72,7 @@ def run_plant_once_main() -> None:
         return
 
     record = run_plant_once()
-    print(json.dumps(asdict(record), ensure_ascii=False, indent=2, default=str))
+    print(format_plant_run_summary(record))
 
 
 def run_plant_once_with_subprocess_timeout(timeout_seconds: float) -> None:
