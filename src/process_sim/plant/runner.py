@@ -17,7 +17,7 @@ from process_sim.reactor.types import StagedAdiabaticPfrModel
 from process_sim.separator import run_hysys_separation_once
 
 
-DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0428v3.hsc")
+DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0430v5.hsc")
 DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS = 120.0
 
 logger = logging.getLogger(__name__)
