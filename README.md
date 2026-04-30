@@ -124,6 +124,8 @@ uv run python scripts/run_plant_once.py
 
 HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行します。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理します。
 
+HYSYS の表示設定は用途で分けます。手動確認やデバッグ用の script 実行では、停止ダイアログやエラー内容を確認できるように `hysys_visible=True` を基本とします。Optuna などの自動探索では、ダイアログで処理が止まるのを避けるため `hysys_visible=False` を明示して使う方針です。
+
 ## ドキュメント運用方針
 
 - コード変更時は、必要に応じて関連文書も更新します。
