@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
 from process_sim.reactor.core.stream import COMPONENT_ORDER
 
@@ -112,11 +115,12 @@ def format_reactor_overall(record: PlantRunRecord) -> list[str]:
 def reactor_inlet_flows(record: PlantRunRecord) -> dict[str, float] | None:
     """metadata に記録した reactor feed を返す。"""
     value = record.metadata.get("reactor_feed")
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return None
+    raw_flows = cast(Mapping[str, object], value)
     flows: dict[str, float] = {}
     for field_name in COMPONENT_ORDER:
-        component_value = value.get(field_name)
+        component_value = raw_flows.get(field_name)
         if isinstance(component_value, (int, float)):
             flows[field_name] = float(component_value)
         else:

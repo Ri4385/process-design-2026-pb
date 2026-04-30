@@ -335,7 +335,7 @@ def read_valid_stream_component(
     if not is_valid_flow(stream.total_molar_flow_kmol_h):
         raise ValueError(f"{stream_name} total flow is invalid: {stream.total_molar_flow_kmol_h}")
     value = stream.component_molar_flow_kmol_h.get(component_name)
-    if not is_valid_flow(value):
+    if value is None or not is_valid_flow(value):
         raise ValueError(f"{stream_name} {component_name} flow is invalid: {value}")
     return value
 
