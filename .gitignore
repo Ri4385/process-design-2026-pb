@@ -37,8 +37,8 @@ Thumbs.db
 # Large binary files from HYSYS simulations
 *.bak
 *.bak~
-data/hysis/**/*.hsc
-data/hysis/**/*.hsc.bak
+data/hysys/*.ads
+data/hysys/*.bk0
 
 # Local development artifacts
 *.tmp

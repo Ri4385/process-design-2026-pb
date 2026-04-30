@@ -38,15 +38,17 @@
 
 ## 現状
 
-- リポジトリは初期構築段階です。
-- Python 実装はこれから整備します。
-- HYSYS 連携の具体的な実装方針も今後詰めます。
-- まずは反応器設計と分離機設計を進められる土台を整えることを優先します。
+- 反応器モデルは Python 側に実装済みです。
+- 既定の反応器ケースは `uv run run-reactor-case` で実行できます。
+- HYSYS ケースの調査と、反応器出口を HYSYS 側へ渡す処理は `scripts/` にあります。
+- 分離機は HYSYS ケース側で構築中であり、Python 側にはまだ分離機専用モジュールはありません。
+- `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いています。
+- リサイクル収束計算、プラント全体ログ、経済収支計算は今後整理する対象です。
 
 ## 参考資料
 
 - コンテスト課題: `data/chem_contest.md`
-- 過去レポート: `data/report_md/report_7.md`
+- 過去レポート: `data/report_md/~`, 
 
 コンテスト課題は主要な参考資料ですが、最終的な設計判断は授業の目的と実際の検討内容を優先します。
 
@@ -76,33 +78,53 @@ uv sync
 - `src/process_sim/constants/`
   反応器モデルなどで使う定数を置きます。
 - `src/process_sim/reactor/`
-  反応器計算ロジックと HYSYS 接続境界を置きます。
+  反応器計算ロジックを置きます。
+- `src/process_sim/reactor/cases/`
+  反応器の既定ケースを置きます。
+- `src/process_sim/reactor/core/`
+  反応器の物質収支、反応速度、熱力学、ストリーム表現などの中核処理を置きます。
+- `src/process_sim/reactor/types/`
+  反応器タイプごとのモデルを置きます。
+- `src/process_sim/separator/`
+  HYSYS 分離系との接続処理を置きます。HYSYS COM オブジェクトはこの層の外に直接出さない方針です。
+- `src/process_sim/plant/`
+  反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱います。
+- `scripts/`
+  実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行を置きます。
 - `data/`
   参考資料や入力データを置きます。
-- `data/hysis/`
+- `data/hysys/`
   HYSYS の `.hsc` などを置く想定です。
+- `data/diagnostics/`
+  HYSYS ケースの診断用 JSON を置きます。これは人間向けのプロセスログではなく、ケース内部の状態確認用です。
+- `data/report_md/`, `data/report_pdf/`
+  過去レポートなどの参考資料を置きます。
 - `docs/`
   設計判断、前提条件、作業記録を置きます。
 - `docs/reports/`
   Codex の作業記録、試算記録、比較結果をトピック単位で残します。
-
-## 反応器の最小実装（Python完結）
-
-- 速度式は過去レポートの式(3.4)〜(3.8)を採用。
-- 速度定数は `src/process_sim/constants/reactor_defaults.py` にまとめています。
-- 反応計算本体は `src/process_sim/reactor/simulator.py` に分離しています。
-- 反応器の I/O 境界は `src/process_sim/reactor/hysys_bridge.py` に分離しています（HYSYS 非依存）。
+- `docs/overview.md`
+  設定条件などの概要が書いてあります
 
 ### 実行
 
 ```powershell
 uv run run-reactor-case
-# あるいは
-python scripts/run_reactor_case.py
 ```
 
-> 現段階では、反応器は Python 側で完結して実行します。
-> HYSYS との連結は分離機側・全体最適化側の設計方針確定後に追加します。
+反応器単体は Python 側で完結して実行します。HYSYS 連携を含む確認は `scripts/` の個別スクリプトから実行します。
+
+プラントのワンパス実行は以下のスクリプトから行います。
+
+```powershell
+uv run python scripts/run_plant_once.py
+```
+
+既定では `data/hysys/process_design_0430v3.hsc` を使い、Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡して、主要 stream を JSON で出力します。
+
+HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行します。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理します。
+
+HYSYS の表示設定は用途で分けます。手動確認やデバッグ用の script 実行では、停止ダイアログやエラー内容を確認できるように `hysys_visible=True` を基本とします。Optuna などの自動探索では、ダイアログで処理が止まるのを避けるため `hysys_visible=False` を明示して使う方針です。
 
 ## ドキュメント運用方針
 
@@ -136,6 +158,10 @@ python scripts/run_reactor_case.py
 以下は現時点で未確定です。
 
 - Python と HYSYS の接続方法の詳細
+- HYSYS 分離機を Python 側でどこまで抽象化するか
+- リサイクル収束計算の実装方針
+- プラント全体ログの出力形式
+- 経済収支計算に使う価格と出典の管理方法
 - 数値モデルの妥当性確認に使う基準値
 - 最終的な最適化の範囲
 
