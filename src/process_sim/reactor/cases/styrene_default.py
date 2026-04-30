@@ -31,10 +31,10 @@ DEFAULT_STYRENE_FEED = ReactorFeed(
 
 DEFAULT_STAGED_ADIABATIC_CONDITIONS = ReactorRunConditions(
     pressure_kpa=101.325,
-    stage_inlet_temperatures_c=(545.4, 571.0, 605.9),
-    stage_lengths_m=(3.09, 3.09, 3.09),
+    stage_inlet_temperatures_c=(550.0, 550.0, 550.0),
+    stage_lengths_m=(1.5, 3.0, 3.0),
     inlet_superficial_velocity_m_per_s=1.93,
-    segments_per_stage=80,
+    segments_per_stage=12000,
     profile_points_per_stage=12,
 )
 

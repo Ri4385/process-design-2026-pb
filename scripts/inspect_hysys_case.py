@@ -18,7 +18,7 @@ import win32com.client
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CASE_PATH = REPO_ROOT / "data" / "hysys" / "process_design_0428v3.hsc"
+DEFAULT_CASE_PATH = REPO_ROOT / "data" / "hysys" / "process_design_0430v3.hsc"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "diagnostics"
 PROG_IDS: tuple[str, ...] = (
     "HYSYS.Application.NewInstance.V14.0",
