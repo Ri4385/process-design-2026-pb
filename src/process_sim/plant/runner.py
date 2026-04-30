@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict
+import json
 import logging
 from pathlib import Path
 import subprocess
@@ -31,6 +33,8 @@ def run_plant_once(
     """反応器出口を HYSYS 分離系へ渡し、主要 stream を記録する。"""
     plant_started_at = time.perf_counter()
     logger.info("plant run started")
+    logger.info("HYSYS case path: %s", case_path.resolve())
+    logger.info("HYSYS visible: %s", hysys_visible)
 
     model = StagedAdiabaticPfrModel()
     reactor_started_at = time.perf_counter()
@@ -51,6 +55,7 @@ def run_plant_once(
     metadata: dict[str, Any] = {
         **hysys_metadata,
         "reactor_case": asdict(reactor_case),
+        "reactor_feed": reactor_case.feed.to_component_flows_kmol_h(),
         "reactor_eb_conversion": reactor_result.eb_conversion,
         "reactor_styrene_selectivity": reactor_result.styrene_selectivity,
     }
@@ -67,22 +72,39 @@ def run_plant_once(
 def run_plant_once_main() -> None:
     """plant one-pass を実行し、JSON 出力する。"""
     configure_logging()
-    if "--plant-run-worker" not in sys.argv:
-        run_plant_once_with_subprocess_timeout(timeout_seconds=DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS)
+    args = parse_plant_run_args()
+    if not args.plant_run_worker:
+        run_plant_once_with_subprocess_timeout(
+            case_path=args.case_path,
+            hysys_visible=not args.hidden,
+            timeout_seconds=args.timeout_seconds,
+        )
         return
 
-    record = run_plant_once()
+    record = run_plant_once(
+        case_path=args.case_path,
+        hysys_visible=not args.hidden,
+    )
+    print(json.dumps(asdict(record), ensure_ascii=False, indent=2, default=str))
     print(format_plant_run_summary(record))
 
 
-def run_plant_once_with_subprocess_timeout(timeout_seconds: float) -> None:
+def run_plant_once_with_subprocess_timeout(
+    case_path: Path,
+    hysys_visible: bool,
+    timeout_seconds: float,
+) -> None:
     """HYSYS 実行を子 Python プロセスに隔離して timeout をかける。"""
     command = [
         sys.executable,
         "-m",
         "process_sim.plant.runner",
         "--plant-run-worker",
+        "--case-path",
+        str(case_path),
     ]
+    if not hysys_visible:
+        command.append("--hidden")
 
     try:
         completed = subprocess.run(
@@ -97,6 +119,16 @@ def run_plant_once_with_subprocess_timeout(timeout_seconds: float) -> None:
 
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
+
+
+def parse_plant_run_args() -> argparse.Namespace:
+    """plant one-pass CLI の引数を読む。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--case-path", type=Path, default=DEFAULT_HYSYS_CASE_PATH)
+    parser.add_argument("--hidden", action="store_true", help="HYSYS GUI を表示しない")
+    parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS)
+    parser.add_argument("--plant-run-worker", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args()
 
 
 def configure_logging() -> None:
