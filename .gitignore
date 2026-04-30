@@ -38,6 +38,7 @@ Thumbs.db
 *.bak
 *.bak~
 data/hysys/*.ads
+data/hysys/*.bk0
 
 # Local development artifacts
 *.tmp
