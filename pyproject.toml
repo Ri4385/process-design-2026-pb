@@ -27,6 +27,7 @@ exclude = ["scripts", "tests", "**/node_modules", "**/__pycache__", "**/.*", ".v
 
 [project.scripts]
 run-reactor-case = "process_sim.cli:run_reactor_case_main"
+run-plant-once = "process_sim.plant.runner:run_plant_once_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/process_sim"]
