@@ -8,10 +8,10 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
+from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.models import ReactorResult, ReactorRunConditions, ReactorStageLog
 from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed, ReactorStream
-from process_sim.reactor.types import StagedAdiabaticPfrModel
+from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 
 
 def default_case_payload() -> dict[str, Any]:

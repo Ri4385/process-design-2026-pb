@@ -18,9 +18,9 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from process_sim.cli import default_case_payload
-from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE
+from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE
 from process_sim.reactor.core.stream import ReactorStream
-from process_sim.reactor.types import StagedAdiabaticPfrModel
+from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 
 
 CASE_PATH = REPO_ROOT / "data" / "hysys" / "decanter.hsc"

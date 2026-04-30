@@ -3,12 +3,12 @@ import pytest
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
 from process_sim.constants.reaction_networks import STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS
-from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE
+from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
 from process_sim.reactor.core.reaction import reaction_rates
 from process_sim.reactor.core.stream import COMPONENT_ORDER
 from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmol, standard_reaction_enthalpy_kj_per_kmol
-from process_sim.reactor.types import StagedAdiabaticPfrModel
+from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.cli import default_case_payload, format_reactor_report
 
 

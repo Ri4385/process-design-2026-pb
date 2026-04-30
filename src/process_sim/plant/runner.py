@@ -12,9 +12,9 @@ import time
 from typing import Any
 
 from process_sim.plant.models import PlantRunRecord
-from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
-from process_sim.reactor.types import StagedAdiabaticPfrModel
-from process_sim.separator import run_hysys_separation_once
+from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
+from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
+from process_sim.separator.hysys_io import run_hysys_separation_once
 
 
 DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0430v5.hsc")
