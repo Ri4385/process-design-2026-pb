@@ -17,10 +17,10 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from process_sim.cli import build_default_input
-from process_sim.constants import DEFAULT_REACTOR_CONFIG
-from process_sim.reactor.models import ReactorFeed, ReactorRunConditions, ReactorStream
-from process_sim.reactor.simulator import StyreneReactorModel
+from process_sim.cli import default_case_payload
+from process_sim.reactor.cases import DEFAULT_STYRENE_REACTOR_CASE
+from process_sim.reactor.core.stream import ReactorStream
+from process_sim.reactor.types import StagedAdiabaticPfrModel
 
 
 CASE_PATH = REPO_ROOT / "data" / "hysys" / "decanter.hsc"
@@ -112,11 +112,9 @@ def open_case(app: Any, case_path: Path) -> Any:
 
 def build_reactor_outlet() -> tuple[dict[str, Any], Any]:
     """反応器既定ケースを実行して出口を返す。"""
-    payload = build_default_input()
-    feed = ReactorFeed(**payload["feed"])
-    conditions = ReactorRunConditions(**payload["conditions"])
-    model = StyreneReactorModel(config=DEFAULT_REACTOR_CONFIG)
-    result = model.run(feed=feed, conditions=conditions)
+    payload = default_case_payload()
+    model = StagedAdiabaticPfrModel()
+    result = model.run(feed=DEFAULT_STYRENE_REACTOR_CASE.feed, conditions=DEFAULT_STYRENE_REACTOR_CASE.conditions)
     return payload, result
 
 
