@@ -40,10 +40,12 @@
 
 - 反応器モデルは Python 側に実装済みです。
 - 既定の反応器ケースは `uv run run-reactor-case` で実行できます。
-- HYSYS ケースの調査と、反応器出口を HYSYS 側へ渡す処理は `scripts/` にあります。
+- 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できます。
+- 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できます。
+- HYSYS ケースの調査用スクリプトは `scripts/` にあります。
 - 分離機は HYSYS ケース側で構築中であり、Python 側にはまだ分離機専用モジュールはありません。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いています。
-- リサイクル収束計算、プラント全体ログ、経済収支計算は今後整理する対象です。
+- 厳密なリサイクル収束計算、経済収支計算は今後整理する対象です。
 
 ## 参考資料
 
@@ -108,23 +110,56 @@ uv sync
 
 ### 実行
 
+反応器単体を実行する場合は、以下を使います。
+
 ```powershell
 uv run run-reactor-case
 ```
 
-反応器単体は Python 側で完結して実行します。HYSYS 連携を含む確認は `scripts/` の個別スクリプトから実行します。
+反応器単体は Python 側で完結して実行します。
 
-プラントのワンパス実行は以下のスクリプトから行います。
+プラントのワンパス実行は以下で行います。
 
 ```powershell
-uv run python scripts/run_plant_once.py
+uv run run-plant-once
 ```
 
-既定では `data/hysys/process_design_0430v3.hsc` を使い、Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡して、主要 stream を JSON で出力します。
+既定では `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_CASE_PATH` に設定された HYSYS ケースを使います。別ケースを使う場合は `--case-path` で指定します。Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡し、主要 stream の要約を出力します。
 
-HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行します。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理します。
+HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行します。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理し、CLI からは `--timeout-seconds` で変更できます。`--case-path` と `--hidden` は子プロセス側にも渡されます。
 
-HYSYS の表示設定は用途で分けます。手動確認やデバッグ用の script 実行では、停止ダイアログやエラー内容を確認できるように `hysys_visible=True` を基本とします。Optuna などの自動探索では、ダイアログで処理が止まるのを避けるため `hysys_visible=False` を明示して使う方針です。
+`run-plant-once` と `tune-plant-feed` は CLI 入口で logging を初期化し、plant 実行開始、使用する HYSYS case path、HYSYS 表示設定、反応器計算、分離計算の進行を標準エラーへ出します。
+
+HYSYS の表示設定は用途で分けます。手動確認やデバッグ用の script 実行では、停止ダイアログやエラー内容を確認できるように `hysys_visible=True` を基本とします。自動探索では、ダイアログで処理が止まるのを避けるため `hysys_visible=False` または `--hidden` を明示して使う方針です。
+
+目標 SM product 流量に合わせて fresh feed を調整する場合は、以下を使います。
+
+```powershell
+uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
+```
+
+`tune-plant-feed` は、目標 SM product 流量から初期 fresh feed と recycle 初期値を作り、2回目以降は直前 run の実効収率、未反応率、recycle 回収率から次回 fresh/recycle を計算します。secant 法は使いません。
+
+主な引数は以下です。
+
+- `--target-sm-kmol-h`
+  目標とする `sm_product` 中の Styrene 流量です。
+- `--max-runs`
+  最大 plant 実行回数です。
+- `--sm-tolerance-kmol-h`
+  目標 SM 流量との差です。`0 <= SM product - target SM <= tolerance` の範囲を合格にします。既定値は `1.0 kmol/h` です。
+- `--eb-recycle-tolerance-kmol-h`
+  EB recycle の `output - input` に対する許容幅です。既定値は `1.0 kmol/h` です。
+- `--h2o-recycle-tolerance-kmol-h`
+  H2O recycle の `output - input` に対する許容幅です。既定値は `1.0 kmol/h` です。
+- `--max-feed-step-fraction`
+  旧 secant 更新用の設定です。現時点の初期値検証経路では使いません。
+- `--case-path`
+  使用する HYSYS ケースのパスです。
+
+`tune-plant-feed` の HYSYS 表示は、複数回実行中にポップアップで止まることを避けるため `False` 固定です。
+
+収束判定では、SM が目標以上かつ過剰分が許容内であること、EB recycle と H2O recycle の自己一致誤差が許容内であることを見ます。各 run 後に feed/SM と recycle consistency の累積表を logging で標準エラーへ出します。
 
 ## ドキュメント運用方針
 
