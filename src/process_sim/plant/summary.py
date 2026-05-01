@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
+from process_sim.reactor.core.stream import COMPONENT_ORDER
 
 
 PRODUCT_STREAMS: tuple[tuple[str, str], ...] = (
@@ -15,6 +19,30 @@ RECYCLE_STREAMS: tuple[tuple[str, str], ...] = (
     ("water_recycle", "H2O"),
 )
 OFF_GAS_COMPONENTS: tuple[str, ...] = ("Hydrogen", "Methane", "CO2", "Styrene", "E-Benzene", "H2O")
+REACTOR_COMPONENT_LABELS: dict[str, str] = {
+    "eb": "EB",
+    "steam": "H2O",
+    "styrene": "SM",
+    "hydrogen": "H2",
+    "benzene": "BZ",
+    "toluene": "TL",
+    "co2": "CO2",
+    "ethylene": "C2H4",
+    "methane": "CH4",
+    "co": "CO",
+}
+REACTOR_FIELD_TO_HYSYS_COMPONENT: dict[str, str] = {
+    "eb": "E-Benzene",
+    "steam": "H2O",
+    "styrene": "Styrene",
+    "hydrogen": "Hydrogen",
+    "benzene": "Benzene",
+    "toluene": "Toluene",
+    "co2": "CO2",
+    "ethylene": "Ethylene",
+    "methane": "Methane",
+    "co": "CO",
+}
 
 
 def format_plant_run_summary(record: PlantRunRecord) -> str:
@@ -25,6 +53,9 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
         "",
         "[Separation feed]",
         *format_separation_feed(record),
+        "",
+        "[Reactor Overall]",
+        *format_reactor_overall(record),
         "",
         "[Products]",
         *format_stream_table(record, PRODUCT_STREAMS),
@@ -42,6 +73,59 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
     if warnings:
         lines.extend(["", "[Warnings]", *warnings])
     return "\n".join(lines)
+
+
+def format_reactor_overall(record: PlantRunRecord) -> list[str]:
+    """反応器入口・出口だけから全体指標を返す。"""
+    inlet_flows = reactor_inlet_flows(record)
+    outlet = record.streams.get("reactor_outlet")
+    if inlet_flows is None or outlet is None:
+        return ["n/a"]
+
+    rows = [
+        f"{'component':<10} {'inlet kmol/h':>14} {'outlet kmol/h':>15} {'delta kmol/h':>14}",
+    ]
+    for field_name in COMPONENT_ORDER:
+        inlet = inlet_flows.get(field_name, 0.0)
+        outlet_flow = component_flow(outlet, REACTOR_FIELD_TO_HYSYS_COMPONENT[field_name]) or 0.0
+        rows.append(
+            f"{REACTOR_COMPONENT_LABELS[field_name]:<10} "
+            f"{inlet:>14.3f} "
+            f"{outlet_flow:>15.3f} "
+            f"{outlet_flow - inlet:>+14.3f}"
+        )
+
+    eb_in = inlet_flows.get("eb", 0.0)
+    eb_out = component_flow(outlet, "E-Benzene")
+    sm_in = inlet_flows.get("styrene", 0.0)
+    sm_out = component_flow(outlet, "Styrene")
+    eb_consumed = None if eb_out is None else eb_in - eb_out
+    sm_net = None if sm_out is None else sm_out - sm_in
+    rows.extend(
+        [
+            "",
+            "[Reactor Metrics]",
+            f"EB single-pass conversion: {fmt_percent(safe_ratio(eb_consumed, eb_in))}",
+            f"SM selectivity: {fmt_percent(safe_ratio(sm_net, eb_consumed))}",
+        ]
+    )
+    return rows
+
+
+def reactor_inlet_flows(record: PlantRunRecord) -> dict[str, float] | None:
+    """metadata に記録した reactor feed を返す。"""
+    value = record.metadata.get("reactor_feed")
+    if not isinstance(value, Mapping):
+        return None
+    raw_flows = cast(Mapping[str, object], value)
+    flows: dict[str, float] = {}
+    for field_name in COMPONENT_ORDER:
+        component_value = raw_flows.get(field_name)
+        if isinstance(component_value, (int, float)):
+            flows[field_name] = float(component_value)
+        else:
+            flows[field_name] = 0.0
+    return flows
 
 
 def format_separation_feed(record: PlantRunRecord) -> list[str]:
@@ -168,3 +252,17 @@ def fmt(value: float | None, digits: int) -> str:
     if value is None:
         return "n/a"
     return f"{value:.{digits}f}"
+
+
+def safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
+    """0 割りと None を避けて比率を返す。"""
+    if numerator is None or denominator is None or denominator <= 0.0:
+        return None
+    return numerator / denominator
+
+
+def fmt_percent(value: float | None) -> str:
+    """比率を percent 表示する。"""
+    if value is None:
+        return "n/a"
+    return f"{value * 100.0:.3f} %"

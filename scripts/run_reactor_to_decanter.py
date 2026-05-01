@@ -5,17 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
-import sys
 from typing import Any, Iterable, Sequence
 
 import pythoncom
 import pywintypes
 import win32com.client
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 from process_sim.cli import default_case_payload
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE
@@ -23,6 +17,7 @@ from process_sim.reactor.core.stream import ReactorStream
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 CASE_PATH = REPO_ROOT / "data" / "hysys" / "decanter.hsc"
 TARGET_STREAM_NAME = "1"
 PROG_IDS: tuple[str, ...] = (
