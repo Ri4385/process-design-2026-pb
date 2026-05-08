@@ -18,19 +18,16 @@
 
 ```text
 src/process_sim/optimization/
-  __init__.py
+  __init__.py        # package docstring のみ
   reactor/
-    __init__.py
-    models.py
-    definitions.py
-    validation.py
-    conditions.py
+    __init__.py      # reactor package docstring のみ
+    models.py       # 探索変数・候補・制約の型
+    search_definition.py # 2段/3段の探索範囲定義
+    candidate_validation.py # 探索候補の制約チェック
+    run_conditions.py # 既存反応器条件への変換
 ```
 
 `models.py` には dataclass のみを置き、変換や検証の関数は置かない。model と logic を分ける。
-`definitions.py` には、現時点で採用する反応器探索変数と制約値の初期定義を置く。
-`validation.py` には候補条件の検証だけを置く。
-`conditions.py` には既存反応器モデルの `ReactorRunConditions` へ変換する処理だけを置く。
 
 ---
 
@@ -155,7 +152,7 @@ class ConstraintViolation:
     message: str
 ```
 
-制約判定は `validation.py` に置く。
+制約判定は `candidate_validation.py` に置く。
 
 ```python
 def validate_reactor_candidate(
@@ -173,13 +170,17 @@ def validate_reactor_candidate(
 - 温度、圧力、Steam/EB 比、段長が探索範囲内にある。
 - 簡易推算した出口圧力が下限以上である。
 
-出口圧力は、初期段階では次の簡易式で扱う。
+圧力は、反応器列入口から各段で順に低下するものとして扱う。
 
 ```text
-出口圧力 = 入口圧力 - 段数 × 反応器1基あたり圧損
+第 i 段入口圧力 = 反応器列入口圧力 - (i - 1) × 反応器1基あたり圧損
+第 i 段出口圧力 = 反応器列入口圧力 - i × 反応器1基あたり圧損
+反応器列出口圧力 = 反応器列入口圧力 - 段数 × 反応器1基あたり圧損
 ```
 
 圧損はコンテスト資料の `0.2 bar/反応器` を基準にする。ただし、コードでは `kPa/reactor` として保持する。
+
+現行の `ReactorRunConditions` は単一の `pressure_kpa` しか持たないため、段ごとの圧力低下を反応速度計算へ厳密には渡せない。このため、初期実装では候補の実現性判定として反応器列出口圧力を推算するに留める。圧力プロファイルを反応器計算へ反映する場合は、先に反応器モデル側の入力を拡張する必要がある。
 
 ---
 
@@ -210,7 +211,7 @@ Optuna の実行 runner は初回実装では作らない。将来 `src/process_
 
 ## 7. 既存反応器モデルへの接続
 
-反応器候補を既存の `ReactorRunConditions` に変換する処理は `conditions.py` に置く。
+反応器候補を既存の `ReactorRunConditions` に変換する処理は `run_conditions.py` に置く。
 
 ```python
 def build_reactor_run_conditions(
@@ -223,6 +224,8 @@ def build_reactor_run_conditions(
 ```
 
 ここでは、候補条件を既存モデルが受け取れる形に変換するだけにする。feed tuning や HYSYS 分離器の実行は行わない。
+
+ただし、現行の `ReactorRunConditions` は段ごとの圧力を表現できない。したがって `run_conditions.py` は、圧力低下を反応器計算へ反映する場所ではない。圧力低下を反応速度に効かせる場合は、`ReactorRunConditions` と反応器本体の拡張を別作業として行う。
 
 ---
 
@@ -259,49 +262,28 @@ L/D は初期の探索制約には入れない。
 ```text
 src/process_sim/optimization/
   reactor/
-    models.py
-    definitions.py
-    validation.py
-    conditions.py
+    models.py          # 探索変数・候補・制約の型
+    search_definition.py # 2段/3段の探索範囲定義
+    candidate_validation.py # 探索候補の制約チェック
+    run_conditions.py # 既存反応器条件への変換
   separator/
-    models.py
-    definitions.py
-    validation.py
-    hysys_controls.py
+    models.py          # 分離候補・仕様条件の型
+    search_definition.py # 分離器の探索範囲定義
+    candidate_validation.py # 分離候補の制約チェック
+    hysys_controls.py  # HYSYS操作条件への変換
   heat_integration/
-    models.py
-    composite_curve.py
-    evaluation.py
+    models.py          # 熱流・温度範囲の型
+    composite_curve.py # 与熱/受熱複合線の作成
+    evaluation.py      # HI後の外部負荷評価
   economics/
-    operating_cost.py
-    equipment_cost.py
-    revenue.py
+    revenue.py         # 製品・副生成物収入の計算
+    operating_cost.py  # 原料・用役・電力費の計算
+    equipment_cost.py  # 機器費の年換算計算
   objective/
-    profit.py
+    profit.py          # 経済収支の評価関数
   runner/
-    optuna_runner.py
+    optuna_runner.py   # Optuna study の実行入口
 ```
-
-この構成では、以下のように責務を分ける。
-
-| パス | 置く内容 |
-|---|---|
-| `optimization/reactor/models.py` | 反応器最適化で使う dataclass。探索変数、制約、候補条件、制約違反の型だけを置く。 |
-| `optimization/reactor/definitions.py` | 2段・3段反応器の初期探索変数と制約値を作る関数を置く。過去資料やコンテスト条件に基づく初期値はここに集約する。 |
-| `optimization/reactor/validation.py` | 反応器候補が探索範囲と制約を満たすか判定する。出口圧力の簡易推算もここに置く。 |
-| `optimization/reactor/conditions.py` | `ReactorCandidate` を既存の `ReactorRunConditions` に変換する。反応計算や feed tuning は行わない。 |
-| `optimization/separator/models.py` | デカンター、蒸留塔など分離器最適化で使う dataclass を置く。 |
-| `optimization/separator/definitions.py` | 分離器側の探索変数候補を置く。HYSYS で操作可能か未確認の値は、固定候補として区別する。 |
-| `optimization/separator/validation.py` | 分離器候補の範囲、製品仕様、HYSYS で扱える値かを検証する。 |
-| `optimization/separator/hysys_controls.py` | HYSYS 側へ渡せる操作条件への変換を置く。Python から制御不能な項目はここに置かない。 |
-| `optimization/heat_integration/models.py` | TQ 線図や熱回収評価に使うストリーム、温度範囲、熱負荷の型を置く。 |
-| `optimization/heat_integration/composite_curve.py` | 与熱・受熱複合線を作る処理を置く。 |
-| `optimization/heat_integration/evaluation.py` | HI 後の外部加熱・外部冷却負荷を見積もる処理を置く。 |
-| `optimization/economics/revenue.py` | SM、BZ、TL などの収入計算を置く。副生成物を売る/売らない比較もここで扱う。 |
-| `optimization/economics/operating_cost.py` | 原料費、ユーティリティ費、電力費などのランニングコストを置く。 |
-| `optimization/economics/equipment_cost.py` | 反応器、分離器、熱交換器、圧縮機などの年換算装置コストを置く。 |
-| `optimization/objective/profit.py` | 収入、原料費、ユーティリティコスト、装置コストを合成し、最終評価値を返す。 |
-| `optimization/runner/optuna_runner.py` | Optuna に依存する探索実行入口を置く。2段・3段は別 study として扱う想定。 |
 
 この時点では `separator/`、`heat_integration/`、`economics/`、`objective/`、`runner/` は作らない。
 
