@@ -71,10 +71,8 @@ src/process_sim/optimization/
 ```python
 @dataclass(frozen=True)
 class ParameterRange:
-    # 探索範囲の下限値。
-    lower: float
-    # 探索範囲の上限値。
-    upper: float
+    lower: float  # 探索範囲の下限値
+    upper: float  # 探索範囲の上限値
 
     def __post_init__(self) -> None:
         if self.lower >= self.upper:
@@ -90,14 +88,10 @@ class ParameterRange:
 ```python
 @dataclass(frozen=True)
 class ReactorParameterConfig:
-    # 各段の反応器入口温度範囲。
-    stage_inlet_temperatures_c: tuple[ParameterRange, ...]
-    # 反応器列入口圧力範囲。
-    inlet_pressure_kpa_abs: ParameterRange
-    # Steam/EB モル比範囲。
-    steam_to_eb_ratio: ParameterRange
-    # 各段の反応器長さ範囲。
-    stage_lengths_m: tuple[ParameterRange, ...]
+    stage_inlet_temperatures_c: tuple[ParameterRange, ...]  # 各段の反応器入口温度範囲
+    inlet_pressure_kpa_abs: ParameterRange                  # 反応器列入口圧力範囲
+    steam_to_eb_ratio: ParameterRange                       # Steam/EB モル比範囲
+    stage_lengths_m: tuple[ParameterRange, ...]             # 各段の反応器長さ範囲
 
     def __post_init__(self) -> None:
         stage_count = len(self.stage_inlet_temperatures_c)
@@ -122,7 +116,7 @@ class ReactorParameterConfig:
 
 これらは、生成された候補条件に対する物理・設計制約ではなく、探索空間定義そのものの不整合である。そのため、`constraints.py` ではなく `parameters.py` 内の `ReactorParameterConfig.__post_init__` で検出する。
 
-探索変数や候補条件を表す dataclass では、各フィールド定義の直前に日本語コメントを付ける。右端コメントは横に長くなりやすいため、原則として使わない。コメントでは、単位を含むフィールド名を補足し、その変数がプロセス上で何を意味するかを説明する。単にフィールド名を日本語に直訳するだけのコメントは避ける。
+探索変数や候補条件を表す dataclass では、各フィールド定義の横に日本語コメントを付ける。コメントは可能な範囲で列を揃え、単位を含むフィールド名を補足し、その変数がプロセス上で何を意味するかを説明する。単にフィールド名を日本語に直訳するだけのコメントは避ける。一方で、定数定義の説明は横に長くなりやすいため、直前コメントとして書く。
 
 2段と3段は探索変数の数が異なるため、別々の定数インスタンスとして定義する。
 
@@ -146,14 +140,10 @@ THREE_STAGE_REACTOR_PARAMETER_CONFIG = ReactorParameterConfig(...)
 ```python
 @dataclass(frozen=True)
 class ReactorCandidate:
-    # 各段の反応器入口温度。
-    stage_inlet_temperatures_c: tuple[float, ...]
-    # 反応器列入口圧力。
-    inlet_pressure_kpa_abs: float
-    # Steam/EB モル比。
-    steam_to_eb_ratio: float
-    # 各段の反応器長さ。
-    stage_lengths_m: tuple[float, ...]
+    stage_inlet_temperatures_c: tuple[float, ...]  # 各段の反応器入口温度
+    inlet_pressure_kpa_abs: float                  # 反応器列入口圧力
+    steam_to_eb_ratio: float                       # Steam/EB モル比
+    stage_lengths_m: tuple[float, ...]             # 各段の反応器長さ
 ```
 
 EB入口流量は `ReactorCandidate` に含めない。
@@ -173,14 +163,10 @@ EB入口流量は `ReactorCandidate` に含めない。
 ```python
 @dataclass(frozen=True)
 class ReactorOptimizationConstraints:
-    # 反応器列出口圧力の下限。
-    min_outlet_pressure_kpa_abs: float
-    # 反応器1基あたりの圧力損失。
-    pressure_drop_kpa_per_reactor: float
-    # Steam/EB モル比の下限。
-    min_steam_to_eb_ratio: float
-    # 各段の反応器入口温度の上限。
-    max_stage_inlet_temperature_c: float
+    min_outlet_pressure_kpa_abs: float      # 反応器列出口圧力の下限
+    pressure_drop_kpa_per_reactor: float    # 反応器1基あたりの圧力損失
+    min_steam_to_eb_ratio: float            # Steam/EB モル比の下限
+    max_stage_inlet_temperature_c: float    # 各段の反応器入口温度の上限
 ```
 
 制約判定は、候補条件を実際に生成する段階で追加する。初回実装では制約値の定義に留める。

@@ -75,40 +75,83 @@ uv sync
 
 ## ディレクトリ運用方針
 
+### ディレクトリ概略
+
 - `src/process_sim/`
-  Python 実装を置きます。
+  Python 実装を置く。
 - `src/process_sim/constants/`
-  反応器モデルなどで使う定数を置きます。
+  反応器モデルなどで使う定数を置く。
 - `src/process_sim/reactor/`
-  反応器計算ロジックを置きます。
-- `src/process_sim/reactor/cases/`
-  反応器の既定ケースを置きます。
-- `src/process_sim/reactor/core/`
-  反応器の物質収支、反応速度、熱力学、ストリーム表現などの中核処理を置きます。
-- `src/process_sim/reactor/types/`
-  反応器タイプごとのモデルを置きます。
+  反応器計算ロジックを置く。
+- `src/process_sim/optimization/`
+  最適化まわりの探索範囲、候補条件、制約値を置く。
 - `src/process_sim/separator/`
-  HYSYS 分離系との接続処理を置きます。HYSYS COM オブジェクトはこの層の外に直接出さない方針です。
+  HYSYS 分離系との接続処理を置く。HYSYS COM オブジェクトはこの層の外に直接出さない方針である。
 - `src/process_sim/plant/`
-  反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱います。
+  反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱う。
 - `scripts/`
-  実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行を置きます。
+  実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行を置く。
 - `data/`
-  参考資料や入力データを置きます。
-- `data/hysys/`
-  HYSYS の `.hsc` などを置く想定です。
-- `data/diagnostics/`
-  HYSYS ケースの診断用 JSON を置きます。これは人間向けのプロセスログではなく、ケース内部の状態確認用です。
-- `data/report_md/`, `data/report_pdf/`
-  過去レポートなどの参考資料を置きます。
+  参考資料や入力データを置く。
 - `docs/`
-  設計判断、前提条件、作業記録を置きます。
+  設計判断、前提条件、作業記録を置く。
+
+### ディレクトリ詳細
+
+- `src/process_sim/reactor/cases/`
+  反応器の既定ケースを置く。
+- `src/process_sim/reactor/core/`
+  反応器の物質収支、反応速度、熱力学、ストリーム表現などの中核処理を置く。
+- `src/process_sim/reactor/types/`
+  反応器タイプごとのモデルを置く。
+- `src/process_sim/optimization/`
+  現在の構成は次の通りである。
+
+  ```text
+  src/process_sim/optimization/
+    models.py          # 共通の探索範囲型
+    reactor/
+      parameters.py    # 反応器パラメータ範囲と候補条件
+      constraints.py   # 反応器制約
+  ```
+
+  将来構成は次の通りである。
+
+  ```text
+  src/process_sim/optimization/
+    models.py          # 共通の探索範囲型
+    reactor/
+      parameters.py      # 反応器パラメータ範囲と候補条件
+      constraints.py     # 反応器制約
+    separator/
+      parameters.py      # 分離パラメータ範囲
+      constraints.py     # 分離制約
+      hysys_controls.py  # HYSYS操作条件への変換
+    heat_integration/
+      models.py          # 熱流・温度範囲の型
+      composite_curve.py # 与熱/受熱複合線の作成
+      evaluation.py      # HI後の外部負荷評価
+    economics/
+      revenue.py         # 製品・副生成物収入の計算
+      operating_cost.py  # 原料・用役・電力費の計算
+      equipment_cost.py  # 機器費の年換算計算
+    objective/
+      profit.py          # 経済収支の評価関数
+    runner/
+      optuna_runner.py   # Optuna study の実行入口
+  ```
+- `data/hysys/`
+  HYSYS の `.hsc` などを置く想定である。
+- `data/diagnostics/`
+  HYSYS ケースの診断用 JSON を置く。これは人間向けのプロセスログではなく、ケース内部の状態確認用である。
+- `data/report_md/`, `data/report_pdf/`
+  過去レポートなどの参考資料を置く。
 - `docs/reports/`
-  Codex の作業記録、試算記録、比較結果をトピック単位で残します。
+  Codex の作業記録、試算記録、比較結果をトピック単位で残す。
 - `docs/overview.md`
-  設定条件などの概要が書いてあります
+  設定条件などの概要が書いてある。
 - `docs/optimization.md`
-  最適化まわりの探索範囲、候補条件、制約値の設計メモを置きます。
+  最適化まわりの探索範囲、候補条件、制約値の設計メモを置く。
 
 ### 実行
 

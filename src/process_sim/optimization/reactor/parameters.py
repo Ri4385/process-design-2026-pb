@@ -41,14 +41,10 @@ INITIAL_STAGE_LENGTH_RANGE_M = ParameterRange(
 class ReactorParameterConfig:
     """反応器最適化変数の探索空間。"""
 
-    # 各段の反応器入口温度範囲。
-    stage_inlet_temperatures_c: tuple[ParameterRange, ...]
-    # 反応器列入口圧力範囲。
-    inlet_pressure_kpa_abs: ParameterRange
-    # Steam/EB モル比範囲。
-    steam_to_eb_ratio: ParameterRange
-    # 各段の反応器長さ範囲。
-    stage_lengths_m: tuple[ParameterRange, ...]
+    stage_inlet_temperatures_c: tuple[ParameterRange, ...]  # 各段の反応器入口温度範囲
+    inlet_pressure_kpa_abs: ParameterRange                  # 反応器列入口圧力範囲
+    steam_to_eb_ratio: ParameterRange                       # Steam/EB モル比範囲
+    stage_lengths_m: tuple[ParameterRange, ...]             # 各段の反応器長さ範囲
 
     def __post_init__(self) -> None:
         """探索空間の構造整合性を検証する。"""
@@ -73,14 +69,10 @@ class ReactorParameterConfig:
 class ReactorCandidate:
     """探索空間から生成された 1 ケース分の反応器条件。"""
 
-    # 各段の反応器入口温度。
-    stage_inlet_temperatures_c: tuple[float, ...]
-    # 反応器列入口圧力。
-    inlet_pressure_kpa_abs: float
-    # Steam/EB モル比。
-    steam_to_eb_ratio: float
-    # 各段の反応器長さ。
-    stage_lengths_m: tuple[float, ...]
+    stage_inlet_temperatures_c: tuple[float, ...]  # 各段の反応器入口温度
+    inlet_pressure_kpa_abs: float                  # 反応器列入口圧力
+    steam_to_eb_ratio: float                       # Steam/EB モル比
+    stage_lengths_m: tuple[float, ...]             # 各段の反応器長さ
 
     @property
     def stage_count(self) -> int:
