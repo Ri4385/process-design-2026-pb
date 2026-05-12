@@ -19,15 +19,14 @@
 ```text
 src/process_sim/optimization/
   __init__.py        # package docstring のみ
+  models.py          # 共通の探索範囲型
   reactor/
     __init__.py      # reactor package docstring のみ
-    models.py       # 探索変数・候補・制約の型
-    search_definition.py # 2段/3段の探索範囲定義
-    candidate_validation.py # 探索候補の制約チェック
-    run_conditions.py # 既存反応器条件への変換
+    parameters.py    # 反応器パラメータ範囲
+    constraints.py   # 反応器制約
 ```
 
-`models.py` には dataclass のみを置き、変換や検証の関数は置かない。model と logic を分ける。
+初回実装では、反応器の「探索するパラメータ群」と「制約条件」を定義するところまでに留める。候補条件の生成、制約チェック、既存反応器モデルへの変換、Optuna 実行はまだ実装しない。
 
 ---
 
@@ -65,59 +64,84 @@ src/process_sim/optimization/
 
 ## 3. 探索変数の表現
 
-探索変数は、自前の軽い dataclass で表現する。
+探索変数の上下範囲は、自前の軽い dataclass で表現する。
 
 想定する基本形は次の通り。
 
 ```python
 @dataclass(frozen=True)
-class FloatSearchParameter:
-    name: str
-    lower: float
-    upper: float
-    unit: str
-    step: float | None = None
-    description: str = ""
+class ParameterRange:
+    lower: float  # 探索範囲の下限値
+    upper: float  # 探索範囲の上限値
+
+    def __post_init__(self) -> None:
+        if self.lower >= self.upper:
+            raise ValueError("lower must be smaller than upper")
 ```
 
-離散値が必要になった場合は、別型として追加する。
+`ParameterRange` は `src/process_sim/optimization/models.py` に置く。変数名に `_c`、`_kpa_abs`、`_m` などを含め、単位はフィールド名で表す。`unit`、`name`、`description`、`step` は初期実装では持たせない。
+
+反応器側では、探索対象の範囲をまとめる型を作る。
 
 ```python
 @dataclass(frozen=True)
-class CategoricalSearchParameter:
-    name: str
-    choices: tuple[int | float | str, ...]
-    unit: str
-    description: str = ""
+class ReactorParameterConfig:
+    stage_inlet_temperatures_c: tuple[ParameterRange, ...]  # 各段の反応器入口温度範囲
+    inlet_pressure_kpa_abs: ParameterRange                  # 反応器列入口圧力範囲
+    steam_to_eb_ratio: ParameterRange                       # Steam/EB モル比範囲
+    stage_lengths_m: tuple[ParameterRange, ...]             # 各段の反応器長さ範囲
+
+    def __post_init__(self) -> None:
+        stage_count = len(self.stage_inlet_temperatures_c)
+
+        if stage_count not in {2, 3}:
+            raise ValueError("stage_count must be 2 or 3")
+
+        if len(self.stage_lengths_m) != stage_count:
+            raise ValueError(
+                "stage_lengths_m must have the same length as "
+                "stage_inlet_temperatures_c"
+            )
+
+    @property
+    def stage_count(self) -> int:
+        return len(self.stage_inlet_temperatures_c)
 ```
 
-反応器側では、探索変数をまとめる型を作る。
+`ReactorParameterConfig` は `src/process_sim/optimization/reactor/parameters.py` に置く。
+
+探索空間そのものの構造整合性は、制約判定ではなく、探索空間インスタンスの生成時に検証する。具体的には、`ReactorParameterConfig.__post_init__` で段数を `stage_inlet_temperatures_c` の要素数から決め、`stage_lengths_m` の要素数と一致することを確認する。初期実装で許可する段数は、2段または3段に限定する。
+
+これらは、生成された候補条件に対する物理・設計制約ではなく、探索空間定義そのものの不整合である。そのため、`constraints.py` ではなく `parameters.py` 内の `ReactorParameterConfig.__post_init__` で検出する。
+
+探索変数や候補条件を表す dataclass では、各フィールド定義の横に日本語コメントを付ける。コメントは可能な範囲で列を揃え、単位を含むフィールド名を補足し、その変数がプロセス上で何を意味するかを説明する。単にフィールド名を日本語に直訳するだけのコメントは避ける。
+
+2段と3段は探索変数の数が異なるため、別々の定数インスタンスとして定義する。
 
 ```python
-@dataclass(frozen=True)
-class ReactorSearchDefinition:
-    stage_count: int
-    stage_inlet_temperature_c: tuple[FloatSearchParameter, ...]
-    inlet_pressure_kpa_abs: FloatSearchParameter
-    steam_to_eb_ratio: FloatSearchParameter
-    stage_length_m: tuple[FloatSearchParameter, ...]
+TWO_STAGE_REACTOR_PARAMETER_CONFIG = ReactorParameterConfig(...)
+THREE_STAGE_REACTOR_PARAMETER_CONFIG = ReactorParameterConfig(...)
 ```
 
-ここでの `stage_count` は 2 または 3 を想定する。2段と3段は同じ探索に押し込まず、別々に扱う。
+これは2つの study を必ず並列実行するという意味ではない。2段用と3段用の探索範囲を明示的に分けて持つためである。
 
 ---
 
 ## 4. 反応器候補条件
 
-探索によって生成された 1 ケースは、探索空間とは別の型で持つ。
+`ReactorCandidate` は、探索範囲そのものではなく、探索によって生成された 1 ケース分の具体的な反応器条件を表す型である。
+
+たとえば `ReactorParameterConfig` が「温度は 590 から 650 degC の範囲で探索する」という探索空間を表すのに対し、`ReactorCandidate` は「第1段入口温度 620 degC、第2段入口温度 610 degC、入口圧力 80 kPa abs、Steam/EB 比 6.0」のような、実際に評価関数へ渡す 1 組の候補値を表す。
+
+探索によって生成された 1 ケースは、将来必要になった段階で `ReactorCandidate` のような型を追加して表す。初回実装では、候補条件の型はまだ作らない。
 
 ```python
 @dataclass(frozen=True)
 class ReactorCandidate:
-    stage_inlet_temperatures_c: tuple[float, ...]
-    inlet_pressure_kpa_abs: float
-    steam_to_eb_ratio: float
-    stage_lengths_m: tuple[float, ...]
+    stage_inlet_temperatures_c: tuple[float, ...]  # 各段の反応器入口温度
+    inlet_pressure_kpa_abs: float                  # 反応器列入口圧力
+    steam_to_eb_ratio: float                       # Steam/EB モル比
+    stage_lengths_m: tuple[float, ...]             # 各段の反応器長さ
 ```
 
 EB入口流量は `ReactorCandidate` に含めない。
@@ -130,45 +154,26 @@ EB入口流量は `ReactorCandidate` に含めない。
 
 探索変数の上下限と、物理・設計上の制約は分ける。
 
-探索変数の上下限は `FloatSearchParameter` に持たせる。
+探索変数の上下限は `ParameterRange` に持たせる。
 
 物理・設計上の制約は、反応器用の制約 dataclass にまとめる。
 
 ```python
 @dataclass(frozen=True)
 class ReactorOptimizationConstraints:
-    min_outlet_pressure_kpa_abs: float
-    pressure_drop_kpa_per_reactor: float
-    min_steam_to_eb_ratio: float
-    max_stage_inlet_temperature_c: float
+    min_outlet_pressure_kpa_abs: float      # 反応器列出口圧力の下限
+    pressure_drop_kpa_per_reactor: float    # 反応器1基あたりの圧力損失
+    min_steam_to_eb_ratio: float            # Steam/EB モル比の下限
+    max_stage_inlet_temperature_c: float    # 各段の反応器入口温度の上限
 ```
 
-制約違反は、軽い記録型で返す。
-
-```python
-@dataclass(frozen=True)
-class ConstraintViolation:
-    name: str
-    message: str
-```
-
-制約判定は `candidate_validation.py` に置く。
-
-```python
-def validate_reactor_candidate(
-    candidate: ReactorCandidate,
-    definition: ReactorSearchDefinition,
-    constraints: ReactorOptimizationConstraints,
-) -> tuple[ConstraintViolation, ...]:
-    ...
-```
+制約判定は、候補条件を実際に生成する段階で追加する。初回実装では制約値の定義に留める。
 
 初期に判定する内容は次を想定する。
 
-- 段数と温度 tuple の長さが一致する。
-- 段数と段長 tuple の長さが一致する。
-- 温度、圧力、Steam/EB 比、段長が探索範囲内にある。
 - 簡易推算した出口圧力が下限以上である。
+
+温度、圧力、Steam/EB 比、段長が探索範囲内にあるかどうかは、物理・設計上の制約というより、生成された `ReactorCandidate` が `ReactorParameterConfig` に対応しているかを確認する防御的な検証である。Optuna などの sampler が `ParameterRange` から直接値を生成する場合、通常は範囲外候補は発生しない。ただし、手動作成した候補や外部ファイルから読み込んだ候補を評価する可能性があるため、将来の候補検証では確認項目に含める。
 
 圧力は、反応器列入口から各段で順に低下するものとして扱う。
 
@@ -191,15 +196,15 @@ Optuna 依存は、探索変数の model には入れない。
 将来 Optuna を使う場合は、探索変数定義を Optuna trial に変換する薄い関数を別に作る。
 
 ```python
-def suggest_float_parameter(
+def suggest_parameter_range(
     trial: optuna.Trial,
-    parameter: FloatSearchParameter,
+    parameter_name: str,
+    parameter_range: ParameterRange,
 ) -> float:
     return trial.suggest_float(
-        parameter.name,
-        parameter.lower,
-        parameter.upper,
-        step=parameter.step,
+        parameter_name,
+        parameter_range.lower,
+        parameter_range.upper,
     )
 ```
 
@@ -211,7 +216,7 @@ Optuna の実行 runner は初回実装では作らない。将来 `src/process_
 
 ## 7. 既存反応器モデルへの接続
 
-反応器候補を既存の `ReactorRunConditions` に変換する処理は `run_conditions.py` に置く。
+反応器候補を既存の `ReactorRunConditions` に変換する処理は、反応器候補を実際に実行する段階で追加する。初回実装では作らない。
 
 ```python
 def build_reactor_run_conditions(
@@ -225,7 +230,7 @@ def build_reactor_run_conditions(
 
 ここでは、候補条件を既存モデルが受け取れる形に変換するだけにする。feed tuning や HYSYS 分離器の実行は行わない。
 
-ただし、現行の `ReactorRunConditions` は段ごとの圧力を表現できない。したがって `run_conditions.py` は、圧力低下を反応器計算へ反映する場所ではない。圧力低下を反応速度に効かせる場合は、`ReactorRunConditions` と反応器本体の拡張を別作業として行う。
+ただし、現行の `ReactorRunConditions` は段ごとの圧力を表現できない。したがって候補変換処理を追加しても、それだけでは圧力低下を反応器計算へ反映できない。圧力低下を反応速度に効かせる場合は、`ReactorRunConditions` と反応器本体の拡張を別作業として行う。
 
 ---
 
@@ -236,12 +241,12 @@ def build_reactor_run_conditions(
 | 項目 | 初期範囲 | 内部単位 | 備考 |
 |---|---:|---|---|
 | 各段入口温度 | 590から650 | degC | コンテスト資料を優先する。 |
-| 反応器入口圧力 | 未確定 | kPa abs | 出口圧力下限と圧損から決める。 |
+| 反応器入口圧力 | 0.1から152.0 | kPa abs | 下限は暫定値、上限は約1.5 atmとして置く。 |
 | Steam/EB比 | 5から8 | mol/mol | 5未満は炭素析出リスクの根拠があるため初期探索に入れない。 |
 | 段数 | 2または3 | - | 別々の study または別々の探索として扱う。 |
 | 各段長 | 未確定 | m | 現行ケースを基準にするか、別途範囲を決める必要がある。 |
 
-圧力の具体的な探索範囲と段長の探索範囲は、まだ確定していない。無理に固定せず、次の検討項目として残す。
+段長の探索範囲は、まだ確定していない。無理に固定せず、次の検討項目として残す。
 
 ---
 
@@ -261,15 +266,13 @@ L/D は初期の探索制約には入れない。
 
 ```text
 src/process_sim/optimization/
+  models.py          # 共通の探索範囲型
   reactor/
-    models.py          # 探索変数・候補・制約の型
-    search_definition.py # 2段/3段の探索範囲定義
-    candidate_validation.py # 探索候補の制約チェック
-    run_conditions.py # 既存反応器条件への変換
+    parameters.py      # 反応器パラメータ範囲
+    constraints.py     # 反応器制約
   separator/
-    models.py          # 分離候補・仕様条件の型
-    search_definition.py # 分離器の探索範囲定義
-    candidate_validation.py # 分離候補の制約チェック
+    parameters.py      # 分離パラメータ範囲
+    constraints.py     # 分離制約
     hysys_controls.py  # HYSYS操作条件への変換
   heat_integration/
     models.py          # 熱流・温度範囲の型
@@ -354,9 +357,7 @@ src/process_sim/optimization/
 
 ## 15. 次に詰めるべき未確定事項
 
-1. 反応器入口圧力の探索範囲。
-2. 各段長または体積の探索範囲。
-3. `FloatSearchParameter` に `step` を持たせるか、探索手法側に任せるか。
-4. Optuna 変換関数をどの段階で実装するか。
-5. 2段・3段の比較を同一 runner で扱うか、別 study として扱うか。
-6. HYSYS 分離器で Python から制御可能な変数の確認。
+1. 各段長または体積の探索範囲。
+2. Optuna 変換関数をどの段階で実装するか。
+3. 2段・3段の比較を同一 runner で扱うか、別 study として扱うか。
+4. HYSYS 分離器で Python から制御可能な変数の確認。
