@@ -13,8 +13,17 @@ from process_sim.plant.feed import (
     FreshFeedPolicy,
     build_reactor_feed,
 )
+from process_sim.plant.const import (
+    DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H,
+    DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H,
+    DEFAULT_HYSYS_CASE_PATH,
+    DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H,
+    DEFAULT_TARGET_SM_KMOL_H,
+    FLOAT_ABS_TOLERANCE,
+    HYSYS_INVALID_SENTINEL,
+)
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
-from process_sim.plant.runner import DEFAULT_HYSYS_CASE_PATH, configure_logging, run_plant_once
+from process_sim.plant.runner import configure_logging, run_plant_once
 from process_sim.plant.summary import format_plant_run_summary
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
@@ -23,17 +32,12 @@ from process_sim.reactor.core.stream import ReactorFeed
 SM_COMPONENT_NAME = "Styrene"
 EB_COMPONENT_NAME = "E-Benzene"
 H2O_COMPONENT_NAME = "H2O"
-DEFAULT_TARGET_SM_KMOL_H = 240.033
-DEFAULT_SINGLE_PASS_SM_YIELD_FROM_EB = 0.50
-DEFAULT_EB_RECYCLE_FRACTION = 0.99
-DEFAULT_H2O_RECYCLE_FRACTION = 0.99
-DEFAULT_STEAM_TO_EB_RATIO = 5.0
-DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H = 0.1
-DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H = 0.1
-DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H = 0.1
-DEFAULT_MAX_RUNS = 5
-DEFAULT_MIN_RUNS = 1
-HYSYS_INVALID_SENTINEL = -32767.0
+DEFAULT_SINGLE_PASS_SM_YIELD_FROM_EB = 0.50  # 初期値生成用の EB 基準 SM 単通収率
+DEFAULT_EB_RECYCLE_FRACTION = 0.99  # 初期値生成用の未反応 EB recycle 率
+DEFAULT_H2O_RECYCLE_FRACTION = 0.99  # 初期値生成用の H2O recycle 率
+DEFAULT_STEAM_TO_EB_RATIO = 5.0  # 初期値生成用の reactor inlet H2O/EB 比
+DEFAULT_MAX_RUNS = 5  # feed tuning 最大実行回数
+DEFAULT_MIN_RUNS = 1  # feed tuning 最小実行回数
 
 
 PlantRunner = Callable[[ReactorCase], PlantRunRecord]
@@ -421,7 +425,9 @@ def is_converged(
 ) -> bool:
     """SM 過不足と recycle 自己一致で収束判定する。"""
     return (
-        0.0 <= sm_margin_kmol_h <= options.sm_tolerance_kmol_h
+        -FLOAT_ABS_TOLERANCE
+        <= sm_margin_kmol_h
+        <= options.sm_tolerance_kmol_h + FLOAT_ABS_TOLERANCE
         and abs(eb_recycle_error_kmol_h) <= options.eb_recycle_tolerance_kmol_h
         and abs(h2o_recycle_error_kmol_h) <= options.h2o_recycle_tolerance_kmol_h
     )
