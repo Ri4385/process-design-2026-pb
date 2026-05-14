@@ -36,8 +36,8 @@ def test_plant_convergence_uses_startup_feed_then_previous_recycle_output() -> N
             reactor_outlet_pressure_kpa=0.0,
             streams={
                 "sm_product": stream_record("sm_product", {"Styrene": 1.0}),
-                "eb_recycle": stream_record("eb_recycle", {"E-Benzene": 200.0}),
-                "water_recycle": stream_record("water_recycle", {"H2O": 2300.0}),
+                "eb_recycle": stream_record("eb_recycle", {"E-Benzene": 200.0, "Benzene": 2.0}),
+                "water_recycle": stream_record("water_recycle", {"H2O": 2300.0, "Hydrogen": 4.0}),
             },
             metadata={},
         )
@@ -55,4 +55,6 @@ def test_plant_convergence_uses_startup_feed_then_previous_recycle_output() -> N
     assert feeds[0].steam == pytest.approx(2370.0)
     assert feeds[1].eb == pytest.approx(465.0)
     assert feeds[1].steam == pytest.approx(2328.0)
+    assert feeds[1].benzene == pytest.approx(265.0 / 0.995 * 0.005 + 2.0)
+    assert feeds[1].hydrogen == pytest.approx(4.0)
     assert result.final_iteration.sm_product_kmol_h == pytest.approx(1.0)

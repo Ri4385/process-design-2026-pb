@@ -12,7 +12,7 @@ from process_sim.plant.const import (
     DEFAULT_PLANT_CONVERGENCE_MAX_ITERATIONS,
     DEFAULT_TARGET_SM_KMOL_H,
 )
-from process_sim.plant.feed import FreshFeed, build_reactor_feed
+from process_sim.plant.feed import FreshFeed, build_reactor_feed, reactor_feed_from_plant_stream
 from process_sim.plant.models import PlantRunRecord
 from process_sim.plant.production_target import (
     EB_COMPONENT_NAME,
@@ -95,8 +95,8 @@ def run_plant_convergence(
         hysys_visible=False,
     )
     iterations: list[PlantConvergenceIteration] = []
-    input_eb_recycle = 0.0
-    input_h2o_recycle = 0.0
+    input_eb_recycle = ReactorFeed(eb=0.0, steam=0.0)
+    input_h2o_recycle = ReactorFeed(eb=0.0, steam=0.0)
 
     for iteration_index in range(1, DEFAULT_PLANT_CONVERGENCE_MAX_ITERATIONS + 1):
         if iteration_index == 1:
@@ -104,8 +104,8 @@ def run_plant_convergence(
         else:
             reactor_feed = build_reactor_feed(
                 fresh_feed=feed_plan.steady_fresh_feed,
-                eb_recycle=ReactorFeed(eb=input_eb_recycle, steam=0.0),
-                water_recycle=ReactorFeed(eb=0.0, steam=input_h2o_recycle),
+                eb_recycle=input_eb_recycle,
+                water_recycle=input_h2o_recycle,
             )
 
         plant_record = run_once(replace(base_reactor_case, feed=reactor_feed))
@@ -119,14 +119,16 @@ def run_plant_convergence(
             stream_name="water_recycle",
             component_name=H2O_COMPONENT_NAME,
         )
+        output_eb_recycle_feed = reactor_feed_from_plant_stream(plant_record.streams.get("eb_recycle"))
+        output_h2o_recycle_feed = reactor_feed_from_plant_stream(plant_record.streams.get("water_recycle"))
         sm_product = read_sm_product_kmol_h(plant_record)
 
         eb_error = None
         h2o_error = None
         converged = False
         if iteration_index > 1:
-            eb_error = output_eb_recycle - input_eb_recycle
-            h2o_error = output_h2o_recycle - input_h2o_recycle
+            eb_error = output_eb_recycle - input_eb_recycle.eb
+            h2o_error = output_h2o_recycle - input_h2o_recycle.steam
             converged = is_recycle_converged(
                 eb_recycle_error_kmol_h=eb_error,
                 h2o_recycle_error_kmol_h=h2o_error,
@@ -135,8 +137,8 @@ def run_plant_convergence(
         iteration = PlantConvergenceIteration(
             iteration_index=iteration_index,
             reactor_feed=reactor_feed,
-            input_eb_recycle_kmol_h=input_eb_recycle,
-            input_h2o_recycle_kmol_h=input_h2o_recycle,
+            input_eb_recycle_kmol_h=input_eb_recycle.eb,
+            input_h2o_recycle_kmol_h=input_h2o_recycle.steam,
             output_eb_recycle_kmol_h=output_eb_recycle,
             output_h2o_recycle_kmol_h=output_h2o_recycle,
             eb_recycle_error_kmol_h=eb_error,
@@ -157,8 +159,8 @@ def run_plant_convergence(
             logger.info("\n%s", format_plant_convergence_result(result))
             return result
 
-        input_eb_recycle = output_eb_recycle
-        input_h2o_recycle = output_h2o_recycle
+        input_eb_recycle = output_eb_recycle_feed
+        input_h2o_recycle = output_h2o_recycle_feed
 
     result = PlantConvergenceResult(
         converged=False,
