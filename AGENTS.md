@@ -42,20 +42,18 @@
 ## Tech Stack
 
 - Package Manager: `uv`
-- Language: Python 3.11 を基本とする
+- Language: Python 3.11
 - Lint: `ruff`
-- Test: `pytest` を必要に応じて使用
-- Integration: `pywin32` による HYSYS COM 連携を想定
+- Test: `pytest`
+- Integration: `pywin32` による HYSYS COM 連携
 - HYSYS Version: v14
-
-Python バージョンは、HYSYS 連携の都合で変更される可能性があります。
 
 ## Code Rules
 
 1. 全ての関数に型ヒントを付ける。
 2. `TypedDict` は使用せず、必要に応じて `pydantic.BaseModel` を使う。
 3. パス操作は `pathlib.Path` を使う。
-4. 文字列連結によるパス生成や `os.path` の多用は避ける。
+4. 文字列連結によるパス生成や `os.path` は避ける。
 5. Windows 環境でも、コード中のパス表現は `/` を基本とする。
 6. HYSYS の COM オブジェクトをアプリケーション境界の外に直接出さない。
 7. HYSYS から取得した情報は、Python 側の明示的なモデルに変換して扱う。
