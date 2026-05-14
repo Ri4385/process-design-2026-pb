@@ -15,18 +15,24 @@ SM 生産量 = 200,000 ton/year
 稼働時間 = 8000 h/year
 ```
 
-この値から、実装上の目標 SM product 流量は以下に固定する。
+この値から、実装上の目標 SM product total 流量は以下に固定する。
 
 ```text
 DEFAULT_TARGET_SM_KMOL_H = 240.033 kmol/h
 ```
 
-許容誤差は既存どおり `1.0 kmol/h` とし、勝手に広げない。
+SM product の Styrene mol 分率は蒸留塔条件として 0.998 とする。そのため、初期 EB feed 推算に使う Styrene 成分量は以下である。
+
+```text
+target_Styrene = 240.033 * 0.998 = 239.553 kmol/h
+```
+
+許容誤差は既定値どおり `0.1 kmol/h` とし、勝手に広げない。
 
 ここでいう `error` は以下である。
 
 ```text
-error = SM product 中の Styrene 流量 - target SM
+error = SM product total 流量 - target SM
 ```
 
 したがって正の値は目標より多く、負の値は目標より少ないことを表す。
@@ -46,10 +52,11 @@ steam_to_eb_ratio = 5.0
 
 ## 初期値計算
 
-目標 SM を `S` とする。
+目標 SM product total を `S`、Styrene mol 分率を `x_SM = 0.998` とする。
 
 ```text
-reactor_inlet_EB = S / single_pass_sm_yield_from_eb
+target_Styrene = S * x_SM
+reactor_inlet_EB = target_Styrene / single_pass_sm_yield_from_eb
 unreacted_EB = reactor_inlet_EB * (1 - single_pass_sm_yield_from_eb)
 recycle_EB = unreacted_EB * eb_recycle_fraction
 fresh_EB = reactor_inlet_EB - recycle_EB
@@ -62,14 +69,15 @@ fresh_H2O = reactor_inlet_H2O - recycle_H2O
 `S = 240.033 kmol/h` のとき、初期値は以下になる。
 
 ```text
-reactor_inlet_EB = 480.066 kmol/h
-unreacted_EB = 240.033 kmol/h
-recycle_EB = 237.633 kmol/h
-fresh_EB = 242.433 kmol/h
+target_Styrene = 239.553 kmol/h
+reactor_inlet_EB = 479.106 kmol/h
+unreacted_EB = 239.553 kmol/h
+recycle_EB = 237.157 kmol/h
+fresh_EB = 241.948 kmol/h
 
-reactor_inlet_H2O = 2400.330 kmol/h
-recycle_H2O = 2376.327 kmol/h
-fresh_H2O = 24.003 kmol/h
+reactor_inlet_H2O = 2395.529 kmol/h
+recycle_H2O = 2371.574 kmol/h
+fresh_H2O = 23.955 kmol/h
 ```
 
 初期 reactor feed は次の合計で作る。
@@ -90,7 +98,7 @@ secant 法は使わない。1 回目は比率から作った初期 fresh/recycle
 直前 run から使う実効値は以下である。
 
 ```text
-EB基準SM製品収率 = SM product / reactor inlet EB
+EB基準SM product total 収率 = SM product total / reactor inlet EB
 EB単通未反応率 = reactor outlet EB / reactor inlet EB
 EB recycle回収率 = EB recycle / reactor outlet EB
 
@@ -102,7 +110,7 @@ H2O recycle回収率 = H2O recycle / reactor outlet H2O
 次回値は以下で計算する。
 
 ```text
-next reactor inlet EB = target SM / EB基準SM製品収率
+next reactor inlet EB = target SM product total / EB基準SM product total 収率
 next reactor outlet EB = next reactor inlet EB * EB単通未反応率
 next EB recycle = next reactor outlet EB * EB recycle回収率
 next fresh EB = next reactor inlet EB - next EB recycle
@@ -121,7 +129,7 @@ abs(EB recycle error) <= 0.1 kmol/h
 abs(H2O recycle error) <= 0.1 kmol/h
 ```
 
-ここで `SM margin = SM product - target SM`、`recycle error = output recycle - input recycle` である。
+ここで `SM margin = SM product total - target SM`、`recycle error = output recycle - input recycle` である。
 
 ## 異常値の扱い
 
@@ -163,6 +171,6 @@ run comp input output error tol
 `tests/test_plant_feed_tuning.py` で以下を確認する。
 
 - `target_sm = 240.033` から、上記の fresh/recycle 初期値が計算されること。
-- SM margin、EB recycle、H2O recycle の許容幅がそれぞれ `1.0 kmol/h` であること。
+- SM margin、EB recycle、H2O recycle の許容幅がそれぞれ `0.1 kmol/h` であること。
 - 初期値生成と直前 run の実効係数から次回 fresh/recycle を計算すること。
 - HYSYS 異常値で停止すること。
