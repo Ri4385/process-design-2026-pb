@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from typing import cast
 
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
+from process_sim.reactor.core.models import ReactorResult
 from process_sim.reactor.core.stream import COMPONENT_ORDER
+from process_sim.reactor.core.stream import ReactorFeed, ReactorStream
 
 
 PRODUCT_STREAMS: tuple[tuple[str, str], ...] = (
@@ -75,6 +77,19 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
     return "\n".join(lines)
 
 
+def format_reactor_calculation_summary(feed: ReactorFeed, result: ReactorResult) -> str:
+    """HYSYS 実行前に出す反応器計算の要約を返す。"""
+    lines = [
+        "[Reactor Overall]",
+        *format_reactor_stream_balance(feed=feed, outlet=result.outlet.stream),
+        "",
+        "[Reactor Metrics]",
+        f"EB single-pass conversion: {fmt_percent(result.eb_conversion)}",
+        f"SM selectivity: {fmt_percent(result.styrene_selectivity)}",
+    ]
+    return "\n".join(lines)
+
+
 def format_reactor_overall(record: PlantRunRecord) -> list[str]:
     """反応器入口・出口だけから全体指標を返す。"""
     inlet_flows = reactor_inlet_flows(record)
@@ -109,6 +124,23 @@ def format_reactor_overall(record: PlantRunRecord) -> list[str]:
             f"SM selectivity: {fmt_percent(safe_ratio(sm_net, eb_consumed))}",
         ]
     )
+    return rows
+
+
+def format_reactor_stream_balance(feed: ReactorFeed, outlet: ReactorStream) -> list[str]:
+    """反応器入口・出口の成分収支表を返す。"""
+    rows = [
+        f"{'component':<10} {'inlet kmol/h':>14} {'outlet kmol/h':>15} {'delta kmol/h':>14}",
+    ]
+    for field_name in COMPONENT_ORDER:
+        inlet = getattr(feed, field_name)
+        outlet_flow = getattr(outlet, field_name)
+        rows.append(
+            f"{REACTOR_COMPONENT_LABELS[field_name]:<10} "
+            f"{inlet:>14.3f} "
+            f"{outlet_flow:>15.3f} "
+            f"{outlet_flow - inlet:>+14.3f}"
+        )
     return rows
 
 
