@@ -14,6 +14,7 @@ from process_sim.plant.production_target import (
     DEFAULT_TARGET_SM_KMOL_H,
     FeedTuningOptions,
     build_initial_feed_guess,
+    is_converged,
     is_valid_recycle_stream,
     limited_feed_step,
     tune_fresh_feed_fast,
@@ -145,6 +146,15 @@ def test_invalid_recycle_stream_is_rejected() -> None:
     assert not is_valid_recycle_stream(stream_record("eb_recycle", {"E-Benzene": -1.0}), "E-Benzene")
     assert not is_valid_recycle_stream(stream_record("eb_recycle", {"Styrene": 1.0}), "E-Benzene")
     assert is_valid_recycle_stream(stream_record("eb_recycle", {"E-Benzene": 1.0}), "E-Benzene")
+
+
+def test_feed_tuning_sm_margin_allows_tiny_float_error() -> None:
+    assert is_converged(
+        sm_margin_kmol_h=-1e-12,
+        eb_recycle_error_kmol_h=0.0,
+        h2o_recycle_error_kmol_h=0.0,
+        options=FeedTuningOptions(),
+    )
 
 
 def test_plant_runner_subprocess_receives_case_path_and_hidden_flag(monkeypatch: pytest.MonkeyPatch) -> None:
