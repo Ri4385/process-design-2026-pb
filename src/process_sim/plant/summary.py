@@ -77,6 +77,17 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
     return "\n".join(lines)
 
 
+def format_final_plant_summary_section(record: PlantRunRecord) -> str:
+    """最終 plant summary section を区切り線付きで返す。"""
+    return "\n".join(
+        [
+            "============================================",
+            "[Final Plant Summary]",
+            format_plant_run_summary(record),
+        ]
+    )
+
+
 def format_reactor_calculation_summary(feed: ReactorFeed, result: ReactorResult) -> str:
     """HYSYS 実行前に出す反応器計算の要約を返す。"""
     lines = [

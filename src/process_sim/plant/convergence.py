@@ -26,7 +26,7 @@ from process_sim.plant.production_target import (
     tune_fresh_feed_fast,
 )
 from process_sim.plant.runner import configure_logging
-from process_sim.plant.summary import format_plant_run_summary
+from process_sim.plant.summary import format_final_plant_summary_section
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
 
@@ -217,8 +217,7 @@ def format_plant_convergence_result(result: PlantConvergenceResult) -> str:
             "",
             format_plant_convergence_table(result.iterations),
             "",
-            "[Final Plant Summary]",
-            format_plant_run_summary(final.plant_record),
+            format_final_plant_summary_section(final.plant_record),
         ]
     )
 

@@ -24,7 +24,7 @@ from process_sim.plant.const import (
 )
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
 from process_sim.plant.runner import configure_logging, run_plant_once
-from process_sim.plant.summary import format_plant_run_summary
+from process_sim.plant.summary import format_final_plant_summary_section
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
 
@@ -509,8 +509,7 @@ def format_feed_tuning_result(result: FeedTuningResult) -> str:
             ),
         ),
         "",
-        "[Final Plant Summary]",
-        format_plant_run_summary(final.plant_record),
+        format_final_plant_summary_section(final.plant_record),
     ]
     return "\n".join(lines)
 
