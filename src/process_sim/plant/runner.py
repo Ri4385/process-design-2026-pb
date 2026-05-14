@@ -14,7 +14,7 @@ from typing import Any
 
 from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH, DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS
 from process_sim.plant.models import PlantRunRecord
-from process_sim.plant.summary import format_plant_run_summary
+from process_sim.plant.summary import format_plant_run_summary, format_reactor_calculation_summary
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.separator.hysys_io import run_hysys_separation_once
@@ -39,6 +39,7 @@ def run_plant_once(
     logger.info("reactor run started")
     reactor_result = model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
     logger.info("reactor run finished in %.2f s", time.perf_counter() - reactor_started_at)
+    logger.info("\n%s", format_reactor_calculation_summary(feed=reactor_case.feed, result=reactor_result))
 
     separator_started_at = time.perf_counter()
     logger.info("separator run started")

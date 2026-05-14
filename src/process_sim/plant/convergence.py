@@ -26,6 +26,7 @@ from process_sim.plant.production_target import (
     tune_fresh_feed_fast,
 )
 from process_sim.plant.runner import configure_logging
+from process_sim.plant.summary import format_plant_run_summary
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
 
@@ -148,20 +149,24 @@ def run_plant_convergence(
         logger.info("\n%s", format_plant_convergence_table(tuple(iterations)))
 
         if converged:
-            return PlantConvergenceResult(
+            result = PlantConvergenceResult(
                 converged=True,
                 feed_plan=feed_plan,
                 iterations=tuple(iterations),
             )
+            logger.info("\n%s", format_plant_convergence_result(result))
+            return result
 
         input_eb_recycle = output_eb_recycle
         input_h2o_recycle = output_h2o_recycle
 
-    return PlantConvergenceResult(
+    result = PlantConvergenceResult(
         converged=False,
         feed_plan=feed_plan,
         iterations=tuple(iterations),
     )
+    logger.info("\n%s", format_plant_convergence_result(result))
+    return result
 
 
 def run_fixed_feed_convergence(
@@ -211,6 +216,9 @@ def format_plant_convergence_result(result: PlantConvergenceResult) -> str:
             f"final SM product: {final.sm_product_kmol_h:.3f} kmol/h",
             "",
             format_plant_convergence_table(result.iterations),
+            "",
+            "[Final Plant Summary]",
+            format_plant_run_summary(final.plant_record),
         ]
     )
 
@@ -219,24 +227,56 @@ def format_plant_convergence_table(iterations: tuple[PlantConvergenceIteration, 
     """Recycle convergence の累積表を返す。"""
     lines = [
         "[Plant Recycle Convergence]",
-        f"{'iter':>4} {'reactorEB':>10} {'reactorH2O':>10} {'inEB':>10} {'outEB':>10} "
-        f"{'errEB':>10} {'inH2O':>10} {'outH2O':>10} {'errH2O':>10} {'SM':>10} {'conv':>5}",
+        f"{'iter':>4} {'comp':>4} {'reactor':>10} {'input':>10} {'output':>10} "
+        f"{'error':>10} {'tol':>8} {'SM':>10} {'conv':>5}",
     ]
     for iteration in iterations:
         lines.append(
-            f"{iteration.iteration_index:>4} "
-            f"{iteration.reactor_feed.eb:>10.3f} "
-            f"{iteration.reactor_feed.steam:>10.3f} "
-            f"{iteration.input_eb_recycle_kmol_h:>10.3f} "
-            f"{iteration.output_eb_recycle_kmol_h:>10.3f} "
-            f"{format_optional_float(iteration.eb_recycle_error_kmol_h):>10} "
-            f"{iteration.input_h2o_recycle_kmol_h:>10.3f} "
-            f"{iteration.output_h2o_recycle_kmol_h:>10.3f} "
-            f"{format_optional_float(iteration.h2o_recycle_error_kmol_h):>10} "
-            f"{iteration.sm_product_kmol_h:>10.3f} "
-            f"{'yes' if iteration.converged else 'no':>5}"
+            format_convergence_component_row(
+                iteration=iteration,
+                component_label="EB",
+                reactor_flow_kmol_h=iteration.reactor_feed.eb,
+                input_recycle_kmol_h=iteration.input_eb_recycle_kmol_h,
+                output_recycle_kmol_h=iteration.output_eb_recycle_kmol_h,
+                recycle_error_kmol_h=iteration.eb_recycle_error_kmol_h,
+                tolerance_kmol_h=DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H,
+            )
+        )
+        lines.append(
+            format_convergence_component_row(
+                iteration=iteration,
+                component_label="H2O",
+                reactor_flow_kmol_h=iteration.reactor_feed.steam,
+                input_recycle_kmol_h=iteration.input_h2o_recycle_kmol_h,
+                output_recycle_kmol_h=iteration.output_h2o_recycle_kmol_h,
+                recycle_error_kmol_h=iteration.h2o_recycle_error_kmol_h,
+                tolerance_kmol_h=DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H,
+            )
         )
     return "\n".join(lines)
+
+
+def format_convergence_component_row(
+    iteration: PlantConvergenceIteration,
+    component_label: str,
+    reactor_flow_kmol_h: float,
+    input_recycle_kmol_h: float,
+    output_recycle_kmol_h: float,
+    recycle_error_kmol_h: float | None,
+    tolerance_kmol_h: float,
+) -> str:
+    """1成分分の recycle convergence 表行を返す。"""
+    return (
+        f"{iteration.iteration_index:>4} "
+        f"{component_label:>4} "
+        f"{reactor_flow_kmol_h:>10.3f} "
+        f"{input_recycle_kmol_h:>10.3f} "
+        f"{output_recycle_kmol_h:>10.3f} "
+        f"{format_optional_float(recycle_error_kmol_h):>10} "
+        f"{tolerance_kmol_h:>8.3f} "
+        f"{iteration.sm_product_kmol_h:>10.3f} "
+        f"{'yes' if iteration.converged else 'no':>5}"
+    )
 
 
 def format_optional_float(value: float | None) -> str:
