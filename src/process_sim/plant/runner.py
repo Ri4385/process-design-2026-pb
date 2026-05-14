@@ -14,7 +14,11 @@ from typing import Any
 
 from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH, DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS
 from process_sim.plant.models import PlantRunRecord
-from process_sim.plant.summary import format_plant_run_summary, format_reactor_calculation_summary
+from process_sim.plant.summary import (
+    format_plant_run_summary,
+    format_reactor_calculation_summary,
+    format_recycle_product_component_summary,
+)
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.separator.hysys_io import run_hysys_separation_once
@@ -58,14 +62,16 @@ def run_plant_once(
         "reactor_eb_conversion": reactor_result.eb_conversion,
         "reactor_styrene_selectivity": reactor_result.styrene_selectivity,
     }
-    logger.info("plant run finished in %.2f s", time.perf_counter() - plant_started_at)
-    return PlantRunRecord(
+    preview_record = PlantRunRecord(
         case_path=case_path.resolve(),
         reactor_outlet_temperature_c=reactor_result.outlet.temperature_c,
         reactor_outlet_pressure_kpa=reactor_result.outlet.pressure_kpa,
         streams=streams,
         metadata=metadata,
     )
+    logger.info("\n%s", format_recycle_product_component_summary(preview_record))
+    logger.info("plant run finished in %.2f s", time.perf_counter() - plant_started_at)
+    return preview_record
 
 
 def run_plant_once_main() -> None:
