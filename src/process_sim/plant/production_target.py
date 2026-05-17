@@ -12,28 +12,33 @@ from process_sim.plant.feed import (
     FreshFeed,
     FreshFeedPolicy,
     build_reactor_feed,
+    reactor_feed_from_plant_stream,
+)
+from process_sim.plant.const import (
+    DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H,
+    DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H,
+    DEFAULT_HYSYS_CASE_PATH,
+    DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H,
+    DEFAULT_SM_PRODUCT_STYRENE_MOL_FRACTION,
+    DEFAULT_TARGET_SM_KMOL_H,
+    FLOAT_ABS_TOLERANCE,
+    HYSYS_INVALID_SENTINEL,
 )
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
-from process_sim.plant.runner import DEFAULT_HYSYS_CASE_PATH, configure_logging, run_plant_once
-from process_sim.plant.summary import format_plant_run_summary
+from process_sim.plant.runner import configure_logging, run_plant_once
+from process_sim.plant.summary import format_final_plant_summary_section
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
 
 
-SM_COMPONENT_NAME = "Styrene"
 EB_COMPONENT_NAME = "E-Benzene"
 H2O_COMPONENT_NAME = "H2O"
-DEFAULT_TARGET_SM_KMOL_H = 240.033
-DEFAULT_SINGLE_PASS_SM_YIELD_FROM_EB = 0.50
-DEFAULT_EB_RECYCLE_FRACTION = 0.99
-DEFAULT_H2O_RECYCLE_FRACTION = 0.99
-DEFAULT_STEAM_TO_EB_RATIO = 5.0
-DEFAULT_SM_MARGIN_TOLERANCE_KMOL_H = 0.1
-DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H = 0.1
-DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H = 0.1
-DEFAULT_MAX_RUNS = 5
-DEFAULT_MIN_RUNS = 1
-HYSYS_INVALID_SENTINEL = -32767.0
+DEFAULT_SINGLE_PASS_SM_YIELD_FROM_EB = 0.50  # 初期値生成用の EB 基準 SM 単通収率
+DEFAULT_EB_RECYCLE_FRACTION = 0.99  # 初期値生成用の未反応 EB recycle 率
+DEFAULT_H2O_RECYCLE_FRACTION = 0.99  # 初期値生成用の H2O recycle 率
+DEFAULT_STEAM_TO_EB_RATIO = 5.0  # 初期値生成用の reactor inlet H2O/EB 比
+DEFAULT_MAX_RUNS = 5  # feed tuning 最大実行回数
+DEFAULT_MIN_RUNS = 1  # feed tuning 最小実行回数
 
 
 PlantRunner = Callable[[ReactorCase], PlantRunRecord]
@@ -264,7 +269,8 @@ def build_initial_feed_guess(
     if feed_policy.eb_mol_fraction <= 0.0:
         raise ValueError("feed_policy.eb_mol_fraction must be positive")
 
-    reactor_inlet_eb = target_sm_kmol_h / guess_policy.single_pass_sm_yield_from_eb
+    target_styrene_kmol_h = target_sm_kmol_h * DEFAULT_SM_PRODUCT_STYRENE_MOL_FRACTION
+    reactor_inlet_eb = target_styrene_kmol_h / guess_policy.single_pass_sm_yield_from_eb
     unreacted_eb = reactor_inlet_eb * (1.0 - guess_policy.single_pass_sm_yield_from_eb)
     recycle_eb = unreacted_eb * guess_policy.eb_recycle_fraction
     fresh_eb = reactor_inlet_eb - recycle_eb
@@ -394,10 +400,37 @@ def estimate_next_feed_from_run(
         hydrocarbon_kmol_h=next_fresh_eb / feed_policy.eb_mol_fraction,
         steam_kmol_h=next_fresh_h2o,
     )
+    next_eb_recycle = scale_reactor_feed_to_component(
+        feed=reactor_feed_from_plant_stream(run.plant_record.streams.get("eb_recycle")),
+        component_name="eb",
+        target_component_kmol_h=next_recycle_eb,
+    )
+    next_h2o_recycle = scale_reactor_feed_to_component(
+        feed=reactor_feed_from_plant_stream(run.plant_record.streams.get("water_recycle")),
+        component_name="steam",
+        target_component_kmol_h=next_recycle_h2o,
+    )
     return (
         fresh_feed,
-        ReactorFeed(eb=next_recycle_eb, steam=0.0),
-        ReactorFeed(eb=0.0, steam=next_recycle_h2o),
+        next_eb_recycle,
+        next_h2o_recycle,
+    )
+
+
+def scale_reactor_feed_to_component(
+    feed: ReactorFeed,
+    component_name: str,
+    target_component_kmol_h: float,
+) -> ReactorFeed:
+    """指定成分が目標流量になるように recycle feed 全体を比例調整する。"""
+    current_component_kmol_h = getattr(feed, component_name)
+    require_positive(current_component_kmol_h, f"current recycle {component_name}")
+    factor = target_component_kmol_h / current_component_kmol_h
+    return ReactorFeed(
+        **{
+            name: value * factor
+            for name, value in feed.to_component_flows_kmol_h().items()
+        }
     )
 
 
@@ -421,21 +454,23 @@ def is_converged(
 ) -> bool:
     """SM 過不足と recycle 自己一致で収束判定する。"""
     return (
-        0.0 <= sm_margin_kmol_h <= options.sm_tolerance_kmol_h
+        -FLOAT_ABS_TOLERANCE
+        <= sm_margin_kmol_h
+        <= options.sm_tolerance_kmol_h + FLOAT_ABS_TOLERANCE
         and abs(eb_recycle_error_kmol_h) <= options.eb_recycle_tolerance_kmol_h
         and abs(h2o_recycle_error_kmol_h) <= options.h2o_recycle_tolerance_kmol_h
     )
 
 
 def read_sm_product_kmol_h(record: PlantRunRecord) -> float:
-    """PlantRunRecord から SM product の Styrene 流量を読む。"""
+    """PlantRunRecord から SM product の total 流量を読む。"""
     sm_product = record.streams.get("sm_product")
     if sm_product is None:
         raise ValueError("sm_product stream is missing")
 
-    value = sm_product.component_molar_flow_kmol_h.get(SM_COMPONENT_NAME)
-    if value is None:
-        raise ValueError(f"{SM_COMPONENT_NAME} flow is missing in sm_product")
+    value = sm_product.total_molar_flow_kmol_h
+    if value is None or not is_valid_flow(value):
+        raise ValueError(f"sm_product total flow is invalid: {value}")
     return value
 
 
@@ -503,8 +538,7 @@ def format_feed_tuning_result(result: FeedTuningResult) -> str:
             ),
         ),
         "",
-        "[Final Plant Summary]",
-        format_plant_run_summary(final.plant_record),
+        format_final_plant_summary_section(final.plant_record),
     ]
     return "\n".join(lines)
 

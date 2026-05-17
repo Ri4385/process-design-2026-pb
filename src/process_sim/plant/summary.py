@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from typing import cast
 
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
+from process_sim.reactor.core.models import ReactorResult
 from process_sim.reactor.core.stream import COMPONENT_ORDER
+from process_sim.reactor.core.stream import ReactorFeed, ReactorStream
 
 
 PRODUCT_STREAMS: tuple[tuple[str, str], ...] = (
@@ -17,6 +19,13 @@ PRODUCT_STREAMS: tuple[tuple[str, str], ...] = (
 RECYCLE_STREAMS: tuple[tuple[str, str], ...] = (
     ("eb_recycle", "E-Benzene"),
     ("water_recycle", "H2O"),
+)
+RECYCLE_PRODUCT_COMPONENT_STREAMS: tuple[tuple[str, str], ...] = (
+    ("recEB", "eb_recycle"),
+    ("recH2O", "water_recycle"),
+    ("productSM", "sm_product"),
+    ("productTL", "tl_product"),
+    ("productBZ", "bz_product"),
 )
 OFF_GAS_COMPONENTS: tuple[str, ...] = ("Hydrogen", "Methane", "CO2", "Styrene", "E-Benzene", "H2O")
 REACTOR_COMPONENT_LABELS: dict[str, str] = {
@@ -63,6 +72,9 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
         "[Recycle]",
         *format_stream_table(record, RECYCLE_STREAMS),
         "",
+        "[Recycle and Products by Component]",
+        *format_recycle_product_component_table(record),
+        "",
         "[Off gas]",
         *format_off_gas(record),
         "",
@@ -72,6 +84,40 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
     warnings = format_warnings(record)
     if warnings:
         lines.extend(["", "[Warnings]", *warnings])
+    return "\n".join(lines)
+
+
+def format_recycle_product_component_summary(record: PlantRunRecord) -> str:
+    """Recycle と product stream の成分流量表を返す。"""
+    return "\n".join(
+        [
+            "[Recycle and Products by Component]",
+            *format_recycle_product_component_table(record),
+        ]
+    )
+
+
+def format_final_plant_summary_section(record: PlantRunRecord) -> str:
+    """最終 plant summary section を区切り線付きで返す。"""
+    return "\n".join(
+        [
+            "============================================",
+            "[Final Plant Summary]",
+            format_plant_run_summary(record),
+        ]
+    )
+
+
+def format_reactor_calculation_summary(feed: ReactorFeed, result: ReactorResult) -> str:
+    """HYSYS 実行前に出す反応器計算の要約を返す。"""
+    lines = [
+        "[Reactor Overall]",
+        *format_reactor_stream_balance(feed=feed, outlet=result.outlet.stream),
+        "",
+        "[Reactor Metrics]",
+        f"EB single-pass conversion: {fmt_percent(result.eb_conversion)}",
+        f"SM selectivity: {fmt_percent(result.styrene_selectivity)}",
+    ]
     return "\n".join(lines)
 
 
@@ -109,6 +155,40 @@ def format_reactor_overall(record: PlantRunRecord) -> list[str]:
             f"SM selectivity: {fmt_percent(safe_ratio(sm_net, eb_consumed))}",
         ]
     )
+    return rows
+
+
+def format_reactor_stream_balance(feed: ReactorFeed, outlet: ReactorStream) -> list[str]:
+    """反応器入口・出口の成分収支表を返す。"""
+    rows = [
+        f"{'component':<10} {'inlet kmol/h':>14} {'outlet kmol/h':>15} {'delta kmol/h':>14}",
+    ]
+    for field_name in COMPONENT_ORDER:
+        inlet = getattr(feed, field_name)
+        outlet_flow = getattr(outlet, field_name)
+        rows.append(
+            f"{REACTOR_COMPONENT_LABELS[field_name]:<10} "
+            f"{inlet:>14.3f} "
+            f"{outlet_flow:>15.3f} "
+            f"{outlet_flow - inlet:>+14.3f}"
+        )
+    return rows
+
+
+def format_recycle_product_component_table(record: PlantRunRecord) -> list[str]:
+    """Recycle と product stream の成分流量を成分ごとに返す。"""
+    headers = " ".join(f"{column_label:>10}" for column_label, _ in RECYCLE_PRODUCT_COMPONENT_STREAMS)
+    rows = [f"{'component':<10} {headers}"]
+    for field_name in COMPONENT_ORDER:
+        component_name = REACTOR_FIELD_TO_HYSYS_COMPONENT[field_name]
+        values = [
+            fmt(component_flow(record.streams.get(stream_name), component_name), 3)
+            for _, stream_name in RECYCLE_PRODUCT_COMPONENT_STREAMS
+        ]
+        rows.append(
+            f"{REACTOR_COMPONENT_LABELS[field_name]:<10} "
+            + " ".join(f"{value:>10}" for value in values)
+        )
     return rows
 
 

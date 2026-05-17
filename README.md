@@ -55,10 +55,11 @@
 - 既定の反応器ケースは `uv run run-reactor-case` で実行できる。
 - 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できる。
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
+- production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
 - HYSYS ケースの調査用スクリプトは `scripts/` にある。
 - 分離機は HYSYS ケース側で構築中であり、Python 側にはまだ分離機専用モジュールはない。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
-- 厳密なリサイクル収束計算、経済収支計算は今後整理する対象である。
+- 経済収支計算は今後整理する対象である。
 
 ## 参考資料
 
@@ -137,6 +138,8 @@ src/process_sim/
   separator/
     hysys_io.py                       # HYSYS分離系I/O
   plant/
+    const.py                         # plant 共通固定値
+    convergence.py                   # plant recycle 収束計算
     feed.py                           # plant feed 作成
     models.py                         # plant 記録モデル
     production_target.py              # 生産量調整
@@ -242,11 +245,11 @@ uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 - `--max-runs`
   最大 plant 実行回数である。
 - `--sm-tolerance-kmol-h`
-  目標 SM 流量との差である。`0 <= SM product - target SM <= tolerance` の範囲を合格にする。既定値は `1.0 kmol/h` である。
+  目標 SM 流量との差である。微小な浮動小数点数誤差を除き、`0 <= SM product - target SM <= tolerance` の範囲を合格にする。既定値は `0.1 kmol/h` である。
 - `--eb-recycle-tolerance-kmol-h`
-  EB recycle の `output - input` に対する許容幅である。既定値は `1.0 kmol/h` である。
+  EB recycle の `output - input` に対する許容幅である。既定値は `0.1 kmol/h` である。
 - `--h2o-recycle-tolerance-kmol-h`
-  H2O recycle の `output - input` に対する許容幅である。既定値は `1.0 kmol/h` である。
+  H2O recycle の `output - input` に対する許容幅である。既定値は `0.1 kmol/h` である。
 - `--max-feed-step-fraction`
   旧 secant 更新用の設定である。現時点の初期値検証経路では使わない。
 - `--case-path`
@@ -255,6 +258,16 @@ uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 `tune-plant-feed` の HYSYS 表示は、複数回実行中にポップアップで止まることを避けるため `False` 固定である。
 
 収束判定では、SM が目標以上かつ過剰分が許容内であること、EB recycle と H2O recycle の自己一致誤差が許容内であることを見る。各 run 後に feed/SM と recycle consistency の累積表を logging で標準エラーへ出す。
+
+正式な recycle 収束計算は以下で行う。
+
+```powershell
+uv run run-plant-convergence
+```
+
+この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。
+
+固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
 
 
 ## 主要文書
