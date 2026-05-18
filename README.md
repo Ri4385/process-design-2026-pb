@@ -14,7 +14,7 @@
 反応2		C6H5-CH2CH3 (EB) → C6H6 (BZ) + C2H4
 反応3		C6H5-CH2CH3 (EB) + H2 → C6H5-CH3 (TL) + CH4
 反応4		2H2O + C2H4 → 2CO + 4H2
-反応5		H2O + CH4 → CO + 3H
+反応5		H2O + CH4 → CO + 3H2
 反応6		H2O + CO → CO2 + H2
 
 ## プロセスフロー
@@ -291,25 +291,6 @@ uv run run-plant-convergence
 - 設計判断は、後から理由を追える形で残す。
 - HYSYS 側の変更も、可能な限り文書として記録する。
 - Codex を使った作業も、後から追跡できる形で残す。
-
-## `docs/reports/` の命名規則
-
-`docs/reports/` は日次ではなくトピック単位で管理する。
-
-ファイル名の形式:
-
-`YYYYMMDD_連番_topic-name.md`
-
-例:
-
-- `20260416_01_reactor-model-setup.md`
-- `20260416_02_equilibrium-check.md`
-- `20260416_03_hysys-interface-notes.md`
-
-1ファイルには、原則として1つの主題だけを書く。
-
-加えて、通常は **1PRにつき `docs/reports/` は1ファイル** を基本とする。
-（1PR内で内容が広がっても、同一ファイル内の見出しでまとめる。）
 
 ## 未確定事項
 
