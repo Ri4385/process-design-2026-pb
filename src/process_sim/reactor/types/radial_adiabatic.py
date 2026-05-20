@@ -1,0 +1,365 @@
+"""断熱ラジアルフロー反応器。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES, SpeciesPhysicalProperty
+from process_sim.constants.reaction_networks import ReactionNetwork, STYRENE_SIX_REACTION_NETWORK
+from process_sim.constants.universal import UNIVERSAL_CONSTANTS, UniversalConstants
+from process_sim.reactor.core.balance import RadialBalanceContext, radial_adiabatic_derivatives
+from process_sim.reactor.core.models import ReactorProfilePoint, ReactorStageLog, ReactorState
+from process_sim.reactor.core.pressure_drop import ErgunParameters, reynolds_over_one_minus_void
+from process_sim.reactor.core.radial_geometry import RadialBedGeometry
+from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed, ReactorStream
+from process_sim.reactor.core.thermodynamics import species_enthalpy_kj_per_kmol
+
+
+@dataclass(frozen=True)
+class RadialReactorStageResult:
+    """1 基のラジアルフロー反応器の計算結果。"""
+
+    outlet: ReactorState
+    stage_log: ReactorStageLog
+    profile: tuple[ReactorProfilePoint, ...]
+
+
+@dataclass(frozen=True)
+class RadialAdiabaticReactor:
+    """1 基分の断熱ラジアルフロー固定床反応器。"""
+
+    network: ReactionNetwork = STYRENE_SIX_REACTION_NETWORK
+    properties: dict[str, SpeciesPhysicalProperty] | None = None
+    universal: UniversalConstants = UNIVERSAL_CONSTANTS
+
+    def run(
+        self,
+        inlet: ReactorStream,
+        feed: ReactorFeed,
+        stage_index: int,
+        inlet_temperature_k: float,
+        inlet_pressure_pa: float,
+        geometry: RadialBedGeometry,
+        ergun_parameters: ErgunParameters,
+        segments: int,
+        profile_points: int,
+    ) -> RadialReactorStageResult:
+        """1 基分のラジアル反応器を計算する。"""
+        if segments <= 0:
+            raise ValueError("segments must be positive")
+        if profile_points <= 0:
+            raise ValueError("profile_points must be positive")
+        if inlet_pressure_pa <= 0.0:
+            raise ValueError("inlet_pressure_pa must be positive")
+
+        properties = self.properties or SPECIES_PHYSICAL_PROPERTIES
+        current_vector = inlet.to_vector_kmol_s()
+        current_temperature_k = inlet_temperature_k
+        current_pressure_pa = inlet_pressure_pa
+        dx = geometry.bed_thickness_m / float(segments)
+        profile_stride = max(1, segments // profile_points)
+        profile: list[ReactorProfilePoint] = []
+        re_values: list[float] = []
+
+        inlet_velocity_m_per_s = self._superficial_velocity_m_per_s(
+            stream=inlet,
+            temperature_k=inlet_temperature_k,
+            pressure_pa=inlet_pressure_pa,
+            area_m2=geometry.flow_area_m2(geometry.inner_radius_m),
+        )
+        self._append_profile_point(
+            profile_points=profile,
+            stage_index=stage_index,
+            radial_position_m=geometry.inner_radius_m,
+            geometry=geometry,
+            temperature_k=current_temperature_k,
+            pressure_pa=current_pressure_pa,
+            stream=inlet,
+            feed=feed,
+            ergun_parameters=ergun_parameters,
+            properties=properties,
+        )
+
+        for segment_index in range(segments):
+            x = segment_index * dx
+            state_vector = current_vector + [current_temperature_k, current_pressure_pa]
+            next_state = self._rk4_radial_step(
+                state_vector=state_vector,
+                radius_m=geometry.inner_radius_m + x,
+                dr=dx,
+                geometry=geometry,
+                ergun_parameters=ergun_parameters,
+                properties=properties,
+            )
+            current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
+            current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
+            current_pressure_pa = max(next_state[len(COMPONENT_ORDER) + 1], 1.0)
+            re_values.append(
+                self._re_over_one_minus_void(
+                    stream=ReactorStream.from_vector_kmol_s(current_vector),
+                    area_m2=geometry.flow_area_m2(geometry.inner_radius_m + (segment_index + 1) * dx),
+                    ergun_parameters=ergun_parameters,
+                    properties=properties,
+                )
+            )
+
+            if (segment_index + 1) % profile_stride == 0 or segment_index == segments - 1:
+                self._append_profile_point(
+                    profile_points=profile,
+                    stage_index=stage_index,
+                    radial_position_m=geometry.inner_radius_m + (segment_index + 1) * dx,
+                    geometry=geometry,
+                    temperature_k=current_temperature_k,
+                    pressure_pa=current_pressure_pa,
+                    stream=ReactorStream.from_vector_kmol_s(current_vector),
+                    feed=feed,
+                    ergun_parameters=ergun_parameters,
+                    properties=properties,
+                )
+
+        outlet_stream = ReactorStream.from_vector_kmol_s(current_vector)
+        outlet_velocity_m_per_s = self._superficial_velocity_m_per_s(
+            stream=outlet_stream,
+            temperature_k=current_temperature_k,
+            pressure_pa=current_pressure_pa,
+            area_m2=geometry.flow_area_m2(geometry.outer_radius_m),
+        )
+        carbon_error, hydrogen_error = atom_balance_errors(feed=inlet, outlet=outlet_stream)
+        outlet_state = ReactorState(
+            stage_index=stage_index,
+            axial_position_m=geometry.bed_thickness_m,
+            cumulative_length_m=geometry.bed_thickness_m,
+            temperature_c=current_temperature_k - 273.15,
+            pressure_kpa=current_pressure_pa / self.universal.pa_per_kpa,
+            stream=outlet_stream,
+        )
+        stage_log = ReactorStageLog(
+            stage_index=stage_index,
+            inlet_temperature_c=inlet_temperature_k - 273.15,
+            outlet_temperature_c=current_temperature_k - 273.15,
+            stage_length_m=geometry.bed_thickness_m,
+            inlet_superficial_velocity_m_per_s=inlet_velocity_m_per_s,
+            outlet_superficial_velocity_m_per_s=outlet_velocity_m_per_s,
+            eb_conversion=self.eb_conversion(feed=feed, stream=outlet_stream),
+            styrene_selectivity=self.styrene_selectivity(feed=feed, stream=outlet_stream),
+            reheat_duty_mw=None,
+            inlet=inlet,
+            outlet=outlet_stream,
+            inlet_pressure_kpa=inlet_pressure_pa / self.universal.pa_per_kpa,
+            outlet_pressure_kpa=current_pressure_pa / self.universal.pa_per_kpa,
+            reactor_pressure_drop_kpa=(inlet_pressure_pa - current_pressure_pa) / self.universal.pa_per_kpa,
+            reheat_pressure_drop_kpa=None,
+            inner_radius_m=geometry.inner_radius_m,
+            outer_radius_m=geometry.outer_radius_m,
+            bed_height_m=geometry.bed_height_m,
+            bed_thickness_m=geometry.bed_thickness_m,
+            catalyst_volume_m3=geometry.catalyst_volume_m3,
+            catalyst_mass_kg=geometry.catalyst_mass_kg,
+            min_re_over_one_minus_void=min(re_values) if re_values else None,
+            max_re_over_one_minus_void=max(re_values) if re_values else None,
+            carbon_balance_error_fraction=carbon_error,
+            hydrogen_balance_error_fraction=hydrogen_error,
+        )
+        return RadialReactorStageResult(
+            outlet=outlet_state,
+            stage_log=stage_log,
+            profile=tuple(profile),
+        )
+
+    def _rk4_radial_step(
+        self,
+        state_vector: list[float],
+        radius_m: float,
+        dr: float,
+        geometry: RadialBedGeometry,
+        ergun_parameters: ErgunParameters,
+        properties: dict[str, SpeciesPhysicalProperty],
+    ) -> list[float]:
+        k1 = self._derivatives(state_vector, radius_m, geometry, ergun_parameters, properties)
+        k2 = self._derivatives(
+            [value + 0.5 * dr * slope for value, slope in zip(state_vector, k1, strict=True)],
+            radius_m + 0.5 * dr,
+            geometry,
+            ergun_parameters,
+            properties,
+        )
+        k3 = self._derivatives(
+            [value + 0.5 * dr * slope for value, slope in zip(state_vector, k2, strict=True)],
+            radius_m + 0.5 * dr,
+            geometry,
+            ergun_parameters,
+            properties,
+        )
+        k4 = self._derivatives(
+            [value + dr * slope for value, slope in zip(state_vector, k3, strict=True)],
+            radius_m + dr,
+            geometry,
+            ergun_parameters,
+            properties,
+        )
+        return [
+            value + dr / 6.0 * (s1 + 2.0 * s2 + 2.0 * s3 + s4)
+            for value, s1, s2, s3, s4 in zip(state_vector, k1, k2, k3, k4, strict=True)
+        ]
+
+    def _derivatives(
+        self,
+        state_vector: list[float],
+        radius_m: float,
+        geometry: RadialBedGeometry,
+        ergun_parameters: ErgunParameters,
+        properties: dict[str, SpeciesPhysicalProperty],
+    ) -> list[float]:
+        context = RadialBalanceContext(
+            radius_m=radius_m,
+            flow_area_m2=geometry.flow_area_m2(radius_m),
+            network=self.network,
+            properties=properties,
+            universal=self.universal,
+            ergun_parameters=ergun_parameters,
+        )
+        return radial_adiabatic_derivatives(state_vector=state_vector, context=context)
+
+    def _append_profile_point(
+        self,
+        profile_points: list[ReactorProfilePoint],
+        stage_index: int,
+        radial_position_m: float,
+        geometry: RadialBedGeometry,
+        temperature_k: float,
+        pressure_pa: float,
+        stream: ReactorStream,
+        feed: ReactorFeed,
+        ergun_parameters: ErgunParameters,
+        properties: dict[str, SpeciesPhysicalProperty],
+    ) -> None:
+        area_m2 = geometry.flow_area_m2(radial_position_m)
+        profile_points.append(
+            ReactorProfilePoint(
+                stage_index=stage_index,
+                axial_position_m=radial_position_m - geometry.inner_radius_m,
+                cumulative_length_m=radial_position_m - geometry.inner_radius_m,
+                temperature_c=temperature_k - 273.15,
+                eb_conversion=self.eb_conversion(feed=feed, stream=stream),
+                styrene_selectivity=self.styrene_selectivity(feed=feed, stream=stream),
+                stream=stream,
+                radial_position_m=radial_position_m,
+                bed_fraction=(radial_position_m - geometry.inner_radius_m) / geometry.bed_thickness_m,
+                pressure_kpa=pressure_pa / self.universal.pa_per_kpa,
+                superficial_velocity_m_per_s=self._superficial_velocity_m_per_s(
+                    stream=stream,
+                    temperature_k=temperature_k,
+                    pressure_pa=pressure_pa,
+                    area_m2=area_m2,
+                ),
+                re_over_one_minus_void=self._re_over_one_minus_void(
+                    stream=stream,
+                    area_m2=area_m2,
+                    ergun_parameters=ergun_parameters,
+                    properties=properties,
+                ),
+            )
+        )
+
+    def _superficial_velocity_m_per_s(
+        self,
+        stream: ReactorStream,
+        temperature_k: float,
+        pressure_pa: float,
+        area_m2: float,
+    ) -> float:
+        total_flow_mol_s = stream.total_flow_kmol_s() * 1000.0
+        volumetric_flow_m3_s = (
+            total_flow_mol_s * self.universal.gas_constant_j_per_mol_k * temperature_k / max(pressure_pa, 1.0)
+        )
+        return volumetric_flow_m3_s / area_m2
+
+    def _re_over_one_minus_void(
+        self,
+        stream: ReactorStream,
+        area_m2: float,
+        ergun_parameters: ErgunParameters,
+        properties: dict[str, SpeciesPhysicalProperty],
+    ) -> float:
+        return reynolds_over_one_minus_void(
+            superficial_mass_velocity_kg_m2_s=mass_flow_kg_s(stream=stream, properties=properties) / area_m2,
+            parameters=ergun_parameters,
+        )
+
+    def reheat_duty_mw(
+        self,
+        stream: ReactorStream,
+        from_temperature_k: float,
+        to_temperature_k: float,
+        properties: dict[str, SpeciesPhysicalProperty],
+    ) -> float:
+        enthalpy_change_kj_per_s = 0.0
+        for name, flow_kmol_h in stream.to_component_flows_kmol_h().items():
+            flow_kmol_s = flow_kmol_h / 3600.0
+            if flow_kmol_s <= 0.0:
+                continue
+            delta_h_kj_per_kmol = species_enthalpy_kj_per_kmol(
+                component_id=name,
+                temperature_k=to_temperature_k,
+                properties=properties,
+                universal=self.universal,
+            ) - species_enthalpy_kj_per_kmol(
+                component_id=name,
+                temperature_k=from_temperature_k,
+                properties=properties,
+                universal=self.universal,
+            )
+            enthalpy_change_kj_per_s += flow_kmol_s * delta_h_kj_per_kmol
+        return enthalpy_change_kj_per_s / 1000.0
+
+    def eb_conversion(self, feed: ReactorFeed, stream: ReactorStream) -> float:
+        converted = max(feed.eb - stream.eb, 0.0)
+        return converted / max(feed.eb, 1e-12)
+
+    def styrene_selectivity(self, feed: ReactorFeed, stream: ReactorStream) -> float:
+        converted = max(feed.eb - stream.eb, 0.0)
+        produced = stream.styrene - feed.styrene
+        return max(produced / max(converted, 1e-12), 0.0)
+
+
+def mass_flow_kg_s(stream: ReactorStream, properties: dict[str, SpeciesPhysicalProperty]) -> float:
+    """成分流量から質量流量を kg/s で返す。"""
+    return sum(
+        flow_kmol_h / 3600.0 * properties[name].molecular_weight
+        for name, flow_kmol_h in stream.to_component_flows_kmol_h().items()
+    )
+
+
+ATOM_COUNTS: dict[str, tuple[int, int]] = {
+    "eb": (8, 10),
+    "steam": (0, 2),
+    "styrene": (8, 8),
+    "hydrogen": (0, 2),
+    "benzene": (6, 6),
+    "toluene": (7, 8),
+    "co2": (1, 0),
+    "ethylene": (2, 4),
+    "methane": (1, 4),
+    "co": (1, 0),
+}
+
+
+def atom_balance_errors(feed: ReactorStream, outlet: ReactorStream) -> tuple[float, float]:
+    """C と H の入口出口相対収支誤差を返す。"""
+    inlet_c, inlet_h = atom_flows(feed)
+    outlet_c, outlet_h = atom_flows(outlet)
+    return (
+        abs(outlet_c - inlet_c) / max(abs(inlet_c), 1e-12),
+        abs(outlet_h - inlet_h) / max(abs(inlet_h), 1e-12),
+    )
+
+
+def atom_flows(stream: ReactorStream) -> tuple[float, float]:
+    """C と H の原子流量を kmol-atom/h で返す。"""
+    carbon = 0.0
+    hydrogen = 0.0
+    for name, flow_kmol_h in stream.to_component_flows_kmol_h().items():
+        c_count, h_count = ATOM_COUNTS[name]
+        carbon += flow_kmol_h * c_count
+        hydrogen += flow_kmol_h * h_count
+    return carbon, hydrogen

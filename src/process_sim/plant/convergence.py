@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass, replace
 import logging
+from pathlib import Path
 
+from process_sim.cli import ReactorModelName
 from process_sim.plant.const import (
     DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H,
     DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H,
@@ -20,6 +23,8 @@ from process_sim.plant.production_target import (
     FeedTuningOptions,
     FeedTuningResult,
     PlantRunner,
+    ReactorCaseLike,
+    default_reactor_case_for_model,
     read_sm_product_kmol_h,
     read_valid_stream_component,
     run_plant_once_for_reactor_case,
@@ -27,7 +32,7 @@ from process_sim.plant.production_target import (
 )
 from process_sim.plant.runner import configure_logging
 from process_sim.plant.summary import format_final_plant_summary_section
-from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
+from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE
 from process_sim.reactor.core.stream import ReactorFeed
 
 
@@ -86,13 +91,15 @@ def feed_plan_from_feed_tuning_result(result: FeedTuningResult) -> PlantFeedPlan
 
 def run_plant_convergence(
     feed_plan: PlantFeedPlan,
-    base_reactor_case: ReactorCase = DEFAULT_STYRENE_REACTOR_CASE,
+    base_reactor_case: ReactorCaseLike = DEFAULT_STYRENE_RADIAL_REACTOR_CASE,
     plant_runner: PlantRunner | None = None,
+    reactor_model: ReactorModelName = "radial",
 ) -> PlantConvergenceResult:
     """固定 fresh feed と直前 recycle output で recycle loop を収束させる。"""
     run_once = plant_runner or run_plant_once_for_reactor_case(
         case_path=DEFAULT_HYSYS_CASE_PATH,
         hysys_visible=False,
+        reactor_model=reactor_model,
     )
     iterations: list[PlantConvergenceIteration] = []
     input_eb_recycle = ReactorFeed(eb=0.0, steam=0.0)
@@ -183,14 +190,23 @@ def run_production_target_convergence(
     target_sm_kmol_h: float = DEFAULT_TARGET_SM_KMOL_H,
     production_target_runner: PlantRunner | None = None,
     convergence_runner: PlantRunner | None = None,
+    reactor_model: ReactorModelName = "radial",
 ) -> PlantConvergenceResult:
     """Production target で feed 条件を決めてから recycle convergence を実行する。"""
+    base_reactor_case = default_reactor_case_for_model(reactor_model)
     tuning_result = tune_fresh_feed_fast(
         options=FeedTuningOptions(target_sm_kmol_h=target_sm_kmol_h),
+        base_reactor_case=base_reactor_case,
         plant_runner=production_target_runner,
+        reactor_model=reactor_model,
     )
     feed_plan = feed_plan_from_feed_tuning_result(tuning_result)
-    return run_plant_convergence(feed_plan=feed_plan, plant_runner=convergence_runner)
+    return run_plant_convergence(
+        feed_plan=feed_plan,
+        base_reactor_case=base_reactor_case,
+        plant_runner=convergence_runner,
+        reactor_model=reactor_model,
+    )
 
 
 def is_recycle_converged(
@@ -287,10 +303,35 @@ def format_optional_float(value: float | None) -> str:
     return f"{value:+.3f}"
 
 
+def parse_plant_convergence_args() -> argparse.Namespace:
+    """Plant convergence CLI の引数を読む。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target-sm-kmol-h", type=float, default=DEFAULT_TARGET_SM_KMOL_H)
+    parser.add_argument(
+        "--reactor-model",
+        choices=("radial", "pfr"),
+        default="radial",
+        help="使用する反応器モデル。既定は radial",
+    )
+    parser.add_argument("--case-path", type=Path, default=DEFAULT_HYSYS_CASE_PATH)
+    return parser.parse_args()
+
+
 def run_plant_convergence_main() -> None:
     """Production target 由来の条件で plant recycle convergence を実行する。"""
     configure_logging()
-    result = run_production_target_convergence()
+    args = parse_plant_convergence_args()
+    runner = run_plant_once_for_reactor_case(
+        case_path=args.case_path,
+        hysys_visible=False,
+        reactor_model=args.reactor_model,
+    )
+    result = run_production_target_convergence(
+        target_sm_kmol_h=args.target_sm_kmol_h,
+        production_target_runner=runner,
+        convergence_runner=runner,
+        reactor_model=args.reactor_model,
+    )
     print(format_plant_convergence_result(result))
 
 

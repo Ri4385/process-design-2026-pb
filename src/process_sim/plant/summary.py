@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
-from process_sim.reactor.core.models import ReactorResult
+from process_sim.reactor.core.models import ReactorResult, ReactorStageLog
 from process_sim.reactor.core.stream import COMPONENT_ORDER
 from process_sim.reactor.core.stream import ReactorFeed, ReactorStream
 
@@ -119,6 +119,133 @@ def format_reactor_calculation_summary(feed: ReactorFeed, result: ReactorResult)
         f"SM selectivity: {fmt_percent(result.styrene_selectivity)}",
     ]
     return "\n".join(lines)
+
+
+def format_radial_reactor_report(feed: ReactorFeed, result: ReactorResult) -> str:
+    """ラジアルフロー反応器の詳細ログを設計書形式で返す。"""
+    stage_logs = result.log.stage_logs
+    lines = [
+        "[Radial Reactor Summary]",
+        "",
+        "[Feed]",
+        f"  total        : {feed.total_flow_kmol_h():.2f} kmol/h",
+        f"  EB           : {feed.eb:.2f} kmol/h",
+        f"  steam        : {feed.steam:.2f} kmol/h",
+        f"  Steam/EB     : {safe_ratio(feed.steam, feed.eb) or 0.0:.2f} mol/mol",
+        "",
+        "[Overall]",
+        f"  outlet T     : {result.outlet.temperature_c:.2f} degC",
+        f"  inlet P      : {fmt(stage_logs[0].inlet_pressure_kpa if stage_logs else None, 3)} kPa abs",
+        f"  outlet P     : {result.outlet.pressure_kpa:.3f} kPa abs",
+        f"  reactor pressure drop : {fmt(result.log.reactor_pressure_drop_kpa, 3)} kPa",
+        f"  reheat pressure drop  : {fmt(result.log.reheat_pressure_drop_kpa, 3)} kPa",
+        f"  total pressure drop   : {fmt(result.log.total_pressure_drop_kpa, 3)} kPa",
+        f"  EB conversion: {format_table_value(result.eb_conversion * 100.0, 2)} %",
+        f"  SM selectivity: {format_table_value(result.styrene_selectivity * 100.0, 2)} %",
+        f"  catalyst volume: {fmt(result.log.total_catalyst_volume_m3, 2)} m3",
+        f"  catalyst mass  : {format_table_value(result.log.total_catalyst_mass_kg, 0)} kg",
+        f"  max Re/(1-eps): {fmt(result.log.max_re_over_one_minus_void, 1)}",
+        "  atom balance:",
+        f"    C error : {fmt_percent(result.log.carbon_balance_error_fraction)}",
+        f"    H error : {fmt_percent(result.log.hydrogen_balance_error_fraction)}",
+        "  constraints:",
+        f"    outlet pressure >= 30 kPa : {format_ok(result.log.outlet_pressure_ok)}",
+        f"    Re/(1-eps) < 500         : {format_ok(result.log.ergun_range_ok)}",
+        f"    pressure positive        : {format_ok(result.log.pressure_positive_ok)}",
+        f"    atom balance             : {format_ok(result.log.atom_balance_ok)}",
+        "",
+        "[Stage Summary]",
+        *format_radial_stage_summary(stage_logs),
+        "",
+        "[Stage Outlet Molar Flows, kmol/h]",
+        *format_radial_stage_outlet_flows(feed=feed, stage_logs=stage_logs),
+    ]
+    return "\n".join(lines)
+
+
+def format_radial_stage_summary(stage_logs: tuple[ReactorStageLog, ...]) -> list[str]:
+    """ラジアルフロー反応器の各段横持ち表を返す。"""
+    headers = ["item", *[f"stage {log.stage_index}" for log in stage_logs]]
+    rows: list[tuple[str, Sequence[float | None], int]] = [
+        ("inlet T [degC]", [log.inlet_temperature_c for log in stage_logs], 2),
+        ("outlet T [degC]", [log.outlet_temperature_c for log in stage_logs], 2),
+        ("inlet P [kPa abs]", [log.inlet_pressure_kpa for log in stage_logs], 3),
+        ("outlet P [kPa abs]", [log.outlet_pressure_kpa for log in stage_logs], 3),
+        ("reactor pressure drop [kPa]", [log.reactor_pressure_drop_kpa for log in stage_logs], 3),
+        ("reheat pressure drop [kPa]", [log.reheat_pressure_drop_kpa for log in stage_logs], 3),
+        ("inner radius [m]", [log.inner_radius_m for log in stage_logs], 3),
+        ("outer radius [m]", [log.outer_radius_m for log in stage_logs], 3),
+        ("bed height [m]", [log.bed_height_m for log in stage_logs], 3),
+        ("bed thickness [m]", [log.bed_thickness_m for log in stage_logs], 3),
+        ("catalyst volume [m3]", [log.catalyst_volume_m3 for log in stage_logs], 2),
+        ("catalyst mass [kg]", [log.catalyst_mass_kg for log in stage_logs], 0),
+        ("inlet velocity [m/s]", [log.inlet_superficial_velocity_m_per_s for log in stage_logs], 3),
+        ("outlet velocity [m/s]", [log.outlet_superficial_velocity_m_per_s for log in stage_logs], 3),
+        ("min Re/(1-eps) [-]", [log.min_re_over_one_minus_void for log in stage_logs], 1),
+        ("max Re/(1-eps) [-]", [log.max_re_over_one_minus_void for log in stage_logs], 1),
+        ("EB conversion [%]", [log.eb_conversion * 100.0 for log in stage_logs], 2),
+        ("SM selectivity [%]", [log.styrene_selectivity * 100.0 for log in stage_logs], 2),
+        ("reheat duty [MW]", [log.reheat_duty_mw for log in stage_logs], 3),
+        ("C balance error [%]", [optional_percent(log.carbon_balance_error_fraction) for log in stage_logs], 4),
+        ("H balance error [%]", [optional_percent(log.hydrogen_balance_error_fraction) for log in stage_logs], 4),
+    ]
+    return format_wide_rows(headers=headers, rows=rows)
+
+
+def format_radial_stage_outlet_flows(feed: ReactorFeed, stage_logs: tuple[ReactorStageLog, ...]) -> list[str]:
+    """段出口モル流量の横持ち表を返す。"""
+    headers = ["component", "inlet", *[f"stage {log.stage_index} out" for log in stage_logs]]
+    rows: list[tuple[str, Sequence[float | None], int]] = []
+    feed_flows = feed.to_component_flows_kmol_h()
+    for field_name in COMPONENT_ORDER:
+        values: list[float | None] = [feed_flows[field_name]]
+        for log in stage_logs:
+            values.append(log.outlet.to_component_flows_kmol_h()[field_name])
+        rows.append((REACTOR_COMPONENT_LABELS[field_name], values, 3))
+    return format_wide_rows(headers=headers, rows=rows)
+
+
+def format_wide_rows(
+    headers: list[str],
+    rows: Sequence[tuple[str, Sequence[float | None], int]],
+) -> list[str]:
+    """項目名と数値列を横持ち表に整形する。"""
+    item_width = max(len(headers[0]), *(len(row[0]) for row in rows))
+    value_width = 14
+    lines = [
+        f"  {headers[0]:<{item_width}} "
+        + " ".join(f"{header:>{value_width}}" for header in headers[1:])
+    ]
+    for label_text, values, digits in rows:
+        rendered = [format_table_value(value, digits) for value in values]
+        lines.append(
+            f"  {label_text:<{item_width}} "
+            + " ".join(f"{value:>{value_width}}" for value in rendered)
+        )
+    return lines
+
+
+def format_table_value(value: float | None, digits: int) -> str:
+    """表内の数値または欠損値を返す。"""
+    if value is None:
+        return "-"
+    if digits == 0:
+        return f"{value:,.0f}"
+    return f"{value:.{digits}f}"
+
+
+def optional_percent(value: float | None) -> float | None:
+    """None を保ったまま percent 表示用の値へ変換する。"""
+    if value is None:
+        return None
+    return value * 100.0
+
+
+def format_ok(value: bool | None) -> str:
+    """制約判定を OK/NG 表示にする。"""
+    if value is None:
+        return "n/a"
+    return "OK" if value else "NG"
 
 
 def format_reactor_overall(record: PlantRunRecord) -> list[str]:
