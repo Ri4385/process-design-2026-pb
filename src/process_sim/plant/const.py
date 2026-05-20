@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0520v5.hsc")  # 既定の HYSYS case path
 DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS = 120.0  # HYSYS 実行 timeout 秒
+HOURS_PER_YEAR = 8000.0  # 年間稼働時間 h/year
 
 DEFAULT_TARGET_SM_KMOL_H = 240.033  # 目標 SM product total 流量 kmol/h
 DEFAULT_SM_PRODUCT_STYRENE_MOL_FRACTION = 0.998  # SM product の Styrene mol 分率

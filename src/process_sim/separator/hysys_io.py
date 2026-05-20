@@ -105,6 +105,42 @@ def get_material_stream(flowsheet: Any, stream_name: str) -> Any:
     raise RuntimeError(f"stream {stream_name} を取得できませんでした。\n" + "\n".join(errors))
 
 
+def get_energy_stream(flowsheet: Any, stream_name: str) -> Any:
+    """指定名の energy stream を取得する。"""
+    energy_streams = getattr(flowsheet, "EnergyStreams", None)
+    if energy_streams is None:
+        raise RuntimeError("EnergyStreams を取得できませんでした。")
+
+    errors: list[str] = []
+    for accessor in (
+        lambda: energy_streams.Item(stream_name),
+        lambda: energy_streams(stream_name),
+    ):
+        try:
+            return accessor()
+        except Exception as exc:
+            errors.append(str(exc))
+    raise RuntimeError(f"energy stream {stream_name} を取得できませんでした。\n" + "\n".join(errors))
+
+
+def get_operation(flowsheet: Any, operation_name: str) -> Any:
+    """指定名の operation を取得する。"""
+    operations = getattr(flowsheet, "Operations", None)
+    if operations is None:
+        raise RuntimeError("Operations を取得できませんでした。")
+
+    errors: list[str] = []
+    for accessor in (
+        lambda: operations.Item(operation_name),
+        lambda: operations(operation_name),
+    ):
+        try:
+            return accessor()
+        except Exception as exc:
+            errors.append(str(exc))
+    raise RuntimeError(f"operation {operation_name} を取得できませんでした。\n" + "\n".join(errors))
+
+
 def coerce_name_list(value: Any) -> list[str]:
     """COM 由来の名前一覧を Python list[str] に変換する。"""
     if value is None:
@@ -246,6 +282,11 @@ def get_quantity(stream: Any, attr_name: str, units: Sequence[str]) -> float | N
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def get_vapor_fraction(stream: Any) -> float | None:
+    """material stream の vapor fraction を読み取る。"""
+    return get_quantity(stream, "VapourFraction", ("", "fraction"))
 
 
 def get_component_molar_flows(stream: Any) -> list[float] | None:
