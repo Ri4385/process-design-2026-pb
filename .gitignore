@@ -47,3 +47,6 @@ data/hysys/*.bk0
 # Build outputs (if any)
 dist/
 build/
+
+# Snapshots of source code (if any)
+data/code_snapshot/source_snapshot.txt

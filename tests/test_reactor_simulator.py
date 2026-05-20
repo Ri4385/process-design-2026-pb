@@ -3,16 +3,75 @@ import pytest
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
 from process_sim.constants.reaction_networks import STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS
-from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE
-from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE
+from process_sim.reactor.cases.styrene_radial_default import RadialReactorCase
+from process_sim.reactor.cases.styrene_default import ReactorCase
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core.models import RadialReactorRunConditions, ReactorRunConditions
+from process_sim.reactor.core.pressure_drop import ErgunParameters
 from process_sim.reactor.core.reaction import reaction_rates
-from process_sim.reactor.core.stream import COMPONENT_ORDER
+from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed
 from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmol, standard_reaction_enthalpy_kj_per_kmol
 from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
-from process_sim.cli import default_case_payload, format_reactor_report
-from process_sim.plant.summary import format_radial_reactor_report
+from process_sim.plant.summary import format_pfr_reactor_report, format_radial_reactor_report
+
+
+def make_test_feed() -> ReactorFeed:
+    return ReactorFeed(
+        eb=605.9,
+        steam=3029.5,
+        styrene=0.0606,
+        hydrogen=0.0,
+        benzene=0.0606,
+        toluene=0.0606,
+        co2=0.0,
+        ethylene=0.0,
+        methane=0.0,
+        co=0.0,
+    )
+
+
+def make_test_pfr_case() -> ReactorCase:
+    return ReactorCase(
+        feed=make_test_feed(),
+        conditions=ReactorRunConditions(
+            pressure_kpa=200.0,
+            stage_inlet_temperatures_c=(550.0, 550.0, 550.0),
+            stage_lengths_m=(1.0, 1.0, 1.0),
+            total_catalyst_volume_m3=12.0,
+            pellet_diameter_m=0.003,
+            bed_void_fraction=0.4312,
+            catalyst_bulk_density_kg_m3=1422.0,
+            ergun_a=1.75,
+            ergun_b=150.0,
+            gas_viscosity_pa_s=4.0e-5,
+            interstage_reheater_pressure_drop_pa=20_000.0,
+            segments_per_stage=300,
+            profile_points_per_stage=6,
+        ),
+    )
+
+
+def make_test_radial_case() -> RadialReactorCase:
+    return RadialReactorCase(
+        feed=make_test_feed(),
+        conditions=RadialReactorRunConditions(
+            inlet_pressure_pa=200_000.0,
+            stage_inlet_temperatures_k=(823.15, 823.15, 823.15),
+            bed_inner_radius_m=1.0,
+            bed_height_m=5.0,
+            bed_thicknesses_m=(0.45, 0.9, 0.9),
+            pellet_diameter_m=0.003,
+            bed_void_fraction=0.4312,
+            catalyst_bulk_density_kg_m3=1422.0,
+            ergun_a=1.75,
+            ergun_b=150.0,
+            gas_viscosity_pa_s=4.0e-5,
+            interstage_reheater_pressure_drop_pa=20_000.0,
+            segments_per_stage=12000,
+            profile_points_per_stage=12,
+        ),
+    )
 
 
 def test_physical_properties_match_documented_values() -> None:
@@ -91,36 +150,49 @@ def test_six_reaction_network_produces_all_rates_and_net_reversible_rate() -> No
 
 
 def test_adiabatic_balance_returns_component_and_temperature_derivatives() -> None:
-    case = DEFAULT_STYRENE_REACTOR_CASE
-    state_vector = case.feed.to_vector_kmol_s() + [case.conditions.stage_inlet_temperatures_c[0] + 273.15]
+    case = make_test_pfr_case()
+    state_vector = case.feed.to_vector_kmol_s() + [
+        case.conditions.stage_inlet_temperatures_c[0] + 273.15,
+        case.conditions.pressure_kpa * UNIVERSAL_CONSTANTS.pa_per_kpa,
+    ]
     context = ReactorBalanceContext(
-        pressure_kpa=case.conditions.pressure_kpa,
         cross_section_area_m2=1.0,
         network=STYRENE_SIX_REACTION_NETWORK,
         properties=SPECIES_PHYSICAL_PROPERTIES,
         universal=UNIVERSAL_CONSTANTS,
+        ergun_parameters=ErgunParameters(
+            pellet_diameter_m=case.conditions.pellet_diameter_m,
+            bed_void_fraction=case.conditions.bed_void_fraction,
+            catalyst_bulk_density_kg_m3=case.conditions.catalyst_bulk_density_kg_m3,
+            ergun_a=case.conditions.ergun_a,
+            ergun_b=case.conditions.ergun_b,
+            gas_viscosity_pa_s=case.conditions.gas_viscosity_pa_s,
+        ),
     )
 
     derivatives = pfr_adiabatic_derivatives(state_vector=state_vector, context=context)
 
-    assert len(derivatives) == len(COMPONENT_ORDER) + 1
+    assert len(derivatives) == len(COMPONENT_ORDER) + 2
     assert any(abs(value) > 0.0 for value in derivatives[:-1])
 
 
 def test_staged_adiabatic_reactor_produces_stage_logs() -> None:
     model = StagedAdiabaticPfrModel()
-    case = DEFAULT_STYRENE_REACTOR_CASE
+    case = make_test_pfr_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
 
     assert len(result.log.stage_logs) == 3
     assert len(result.log.profile) > 3
     assert result.log.cross_section_area_m2 > 0.0
+    assert result.log.total_catalyst_volume_m3 == pytest.approx(case.conditions.total_catalyst_volume_m3)
+    assert result.outlet.pressure_kpa < case.conditions.pressure_kpa
+    assert result.log.reheat_pressure_drop_kpa == pytest.approx(40.0)
 
 
 def test_radial_reactor_produces_pressure_and_atom_balance_logs() -> None:
     model = StagedAdiabaticRadialFlowModel()
-    case = DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+    case = make_test_radial_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
 
@@ -128,13 +200,16 @@ def test_radial_reactor_produces_pressure_and_atom_balance_logs() -> None:
     assert result.outlet.pressure_kpa > 30.0
     assert result.log.reactor_pressure_drop_kpa is not None
     assert result.log.reheat_pressure_drop_kpa == pytest.approx(40.0)
-    assert result.log.atom_balance_ok is True
+    assert result.log.carbon_balance_error_fraction is not None
+    assert result.log.hydrogen_balance_error_fraction is not None
+    assert result.log.carbon_balance_error_fraction < 1e-6
+    assert result.log.hydrogen_balance_error_fraction < 1e-6
     assert result.log.max_re_over_one_minus_void is not None
 
 
 def test_reactor_result_remains_non_negative() -> None:
     model = StagedAdiabaticPfrModel()
-    case = DEFAULT_STYRENE_REACTOR_CASE
+    case = make_test_pfr_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
     outlet = result.outlet.stream
@@ -145,39 +220,44 @@ def test_reactor_result_remains_non_negative() -> None:
 
 def test_reactor_stage_logs_include_temperature_change_and_reheat_duty() -> None:
     model = StagedAdiabaticPfrModel()
-    case = DEFAULT_STYRENE_REACTOR_CASE
+    case = make_test_pfr_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
 
     for stage_log in result.log.stage_logs:
         assert stage_log.stage_length_m > 0.0
-        assert stage_log.outlet_temperature_c != pytest.approx(stage_log.inlet_temperature_c)
+        assert stage_log.inlet_pressure_kpa is not None
+        assert stage_log.outlet_pressure_kpa is not None
+    assert any(
+        stage_log.outlet_temperature_c != pytest.approx(stage_log.inlet_temperature_c)
+        for stage_log in result.log.stage_logs
+    )
     assert result.log.stage_logs[0].reheat_duty_mw is not None
     assert result.log.stage_logs[1].reheat_duty_mw is not None
     assert result.log.stage_logs[2].reheat_duty_mw is None
 
 
-def test_human_readable_report_contains_expected_sections() -> None:
+def test_pfr_reactor_report_contains_design_sections() -> None:
     model = StagedAdiabaticPfrModel()
-    case = DEFAULT_STYRENE_REACTOR_CASE
+    case = make_test_pfr_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
-    report = format_reactor_report(result=result, payload=default_case_payload("pfr"))
+    report = format_pfr_reactor_report(feed=case.feed, result=result)
 
-    assert "反応器ログ" in report
-    assert "入口条件 feed" in report
-    assert "全体サマリー" in report
-    assert "出口流量" in report
-    assert "入口から出口までの差分" in report
-    assert "各段ログ" in report
-    assert "第1段" in report
-    assert "第2段" in report
-    assert "第3段" in report
+    assert "[PFR Reactor Summary]" in report
+    assert "[Feed]" in report
+    assert "[Overall]" in report
+    assert "[Stage Summary]" in report
+    assert "[Stage Outlet Molar Flows, kmol/h]" in report
+    assert "cross section area" in report
+    assert "equivalent diameter" in report
+    assert "atom balance:" in report
+    assert "constraints:" in report
 
 
 def test_radial_reactor_report_contains_design_sections() -> None:
     model = StagedAdiabaticRadialFlowModel()
-    case = DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+    case = make_test_radial_case()
 
     result = model.run(feed=case.feed, conditions=case.conditions)
     report = format_radial_reactor_report(feed=case.feed, result=result)

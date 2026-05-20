@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from process_sim.plant.summary import format_radial_reactor_report
+from process_sim.plant.summary import format_pfr_reactor_report, format_radial_reactor_report
 from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE, RadialReactorCase
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.models import RadialReactorRunConditions, ReactorResult, ReactorRunConditions, ReactorStageLog
@@ -115,7 +115,7 @@ def _stage_delta_lines(stage_log: ReactorStageLog) -> list[str]:
 
 
 def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str:
-    reactor_model = str(payload.get("reactor_model", "pfr"))
+    reactor_model = str(payload.get("reactor_model", "radial"))
     feed = radial_case_from_payload(payload).feed if reactor_model == "radial" else case_from_payload(payload).feed
     outlet = result.outlet.stream
     feed_flows = feed.to_component_flows_kmol_h()
@@ -226,7 +226,7 @@ def run_reactor_case_main() -> None:
         if reactor_model == "radial":
             print(format_radial_reactor_report(feed=report_feed, result=result))
         else:
-            print(format_reactor_report(result=result, payload=payload))
+            print(format_pfr_reactor_report(feed=report_feed, result=result))
         return
 
     output = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
 from typing import cast
 
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
@@ -163,6 +164,80 @@ def format_radial_reactor_report(feed: ReactorFeed, result: ReactorResult) -> st
     return "\n".join(lines)
 
 
+def format_pfr_reactor_report(feed: ReactorFeed, result: ReactorResult) -> str:
+    """PFR 反応器の詳細ログを設計書形式で返す。"""
+    stage_logs = result.log.stage_logs
+    equivalent_diameter_m = equivalent_diameter(result.log.cross_section_area_m2)
+    lines = [
+        "[PFR Reactor Summary]",
+        "",
+        "[Feed]",
+        f"  total        : {feed.total_flow_kmol_h():.2f} kmol/h",
+        f"  EB           : {feed.eb:.2f} kmol/h",
+        f"  steam        : {feed.steam:.2f} kmol/h",
+        f"  Steam/EB     : {safe_ratio(feed.steam, feed.eb) or 0.0:.2f} mol/mol",
+        "",
+        "[Overall]",
+        f"  outlet T     : {result.outlet.temperature_c:.2f} degC",
+        f"  inlet P      : {fmt(stage_logs[0].inlet_pressure_kpa if stage_logs else None, 3)} kPa abs",
+        f"  outlet P     : {result.outlet.pressure_kpa:.3f} kPa abs",
+        f"  reactor pressure drop : {fmt(result.log.reactor_pressure_drop_kpa, 3)} kPa",
+        f"  reheat pressure drop  : {fmt(result.log.reheat_pressure_drop_kpa, 3)} kPa",
+        f"  total pressure drop   : {fmt(result.log.total_pressure_drop_kpa, 3)} kPa",
+        f"  cross section area: {result.log.cross_section_area_m2:.3f} m2",
+        f"  equivalent diameter: {equivalent_diameter_m:.3f} m",
+        f"  EB conversion: {format_table_value(result.eb_conversion * 100.0, 2)} %",
+        f"  SM selectivity: {format_table_value(result.styrene_selectivity * 100.0, 2)} %",
+        f"  catalyst volume: {fmt(result.log.total_catalyst_volume_m3, 2)} m3",
+        f"  catalyst mass  : {format_table_value(result.log.total_catalyst_mass_kg, 0)} kg",
+        f"  max Re/(1-eps): {fmt(result.log.max_re_over_one_minus_void, 1)}",
+        "  atom balance:",
+        f"    C error : {fmt_percent(result.log.carbon_balance_error_fraction)}",
+        f"    H error : {fmt_percent(result.log.hydrogen_balance_error_fraction)}",
+        "  constraints:",
+        f"    outlet pressure >= 30 kPa : {format_ok(result.log.outlet_pressure_ok)}",
+        f"    Re/(1-eps) < 500         : {format_ok(result.log.ergun_range_ok)}",
+        f"    pressure positive        : {format_ok(result.log.pressure_positive_ok)}",
+        f"    atom balance             : {format_ok(result.log.atom_balance_ok)}",
+        "",
+        "[Stage Summary]",
+        *format_pfr_stage_summary(stage_logs=stage_logs, cross_section_area_m2=result.log.cross_section_area_m2),
+        "",
+        "[Stage Outlet Molar Flows, kmol/h]",
+        *format_radial_stage_outlet_flows(feed=feed, stage_logs=stage_logs),
+    ]
+    return "\n".join(lines)
+
+
+def format_pfr_stage_summary(stage_logs: tuple[ReactorStageLog, ...], cross_section_area_m2: float) -> list[str]:
+    """PFR の各段横持ち表を返す。"""
+    equivalent_diameter_m = equivalent_diameter(cross_section_area_m2)
+    headers = ["item", *[f"stage {log.stage_index}" for log in stage_logs]]
+    rows: list[tuple[str, Sequence[float | None], int]] = [
+        ("inlet T [degC]", [log.inlet_temperature_c for log in stage_logs], 2),
+        ("outlet T [degC]", [log.outlet_temperature_c for log in stage_logs], 2),
+        ("inlet P [kPa abs]", [log.inlet_pressure_kpa for log in stage_logs], 3),
+        ("outlet P [kPa abs]", [log.outlet_pressure_kpa for log in stage_logs], 3),
+        ("reactor pressure drop [kPa]", [log.reactor_pressure_drop_kpa for log in stage_logs], 3),
+        ("reheat pressure drop [kPa]", [log.reheat_pressure_drop_kpa for log in stage_logs], 3),
+        ("stage length [m]", [log.stage_length_m for log in stage_logs], 3),
+        ("cross section area [m2]", [cross_section_area_m2 for _ in stage_logs], 3),
+        ("equivalent diameter [m]", [equivalent_diameter_m for _ in stage_logs], 3),
+        ("catalyst volume [m3]", [log.catalyst_volume_m3 for log in stage_logs], 2),
+        ("catalyst mass [kg]", [log.catalyst_mass_kg for log in stage_logs], 0),
+        ("inlet velocity [m/s]", [log.inlet_superficial_velocity_m_per_s for log in stage_logs], 3),
+        ("outlet velocity [m/s]", [log.outlet_superficial_velocity_m_per_s for log in stage_logs], 3),
+        ("min Re/(1-eps) [-]", [log.min_re_over_one_minus_void for log in stage_logs], 1),
+        ("max Re/(1-eps) [-]", [log.max_re_over_one_minus_void for log in stage_logs], 1),
+        ("EB conversion [%]", [log.eb_conversion * 100.0 for log in stage_logs], 2),
+        ("SM selectivity [%]", [log.styrene_selectivity * 100.0 for log in stage_logs], 2),
+        ("reheat duty [MW]", [log.reheat_duty_mw for log in stage_logs], 3),
+        ("C balance error [%]", [optional_percent(log.carbon_balance_error_fraction) for log in stage_logs], 4),
+        ("H balance error [%]", [optional_percent(log.hydrogen_balance_error_fraction) for log in stage_logs], 4),
+    ]
+    return format_wide_rows(headers=headers, rows=rows)
+
+
 def format_radial_stage_summary(stage_logs: tuple[ReactorStageLog, ...]) -> list[str]:
     """ラジアルフロー反応器の各段横持ち表を返す。"""
     headers = ["item", *[f"stage {log.stage_index}" for log in stage_logs]]
@@ -246,6 +321,11 @@ def format_ok(value: bool | None) -> str:
     if value is None:
         return "n/a"
     return "OK" if value else "NG"
+
+
+def equivalent_diameter(cross_section_area_m2: float) -> float:
+    """断面積から円形断面の等価直径を返す。"""
+    return math.sqrt(4.0 * cross_section_area_m2 / math.pi)
 
 
 def format_reactor_overall(record: PlantRunRecord) -> list[str]:

@@ -17,11 +17,11 @@ from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmo
 class ReactorBalanceContext:
     """収支計算に必要な外部条件。"""
 
-    pressure_kpa: float
     cross_section_area_m2: float
     network: ReactionNetwork
     properties: dict[str, SpeciesPhysicalProperty]
     universal: UniversalConstants
+    ergun_parameters: ErgunParameters
 
 
 @dataclass(frozen=True)
@@ -37,11 +37,11 @@ class RadialBalanceContext:
 
 
 def pfr_adiabatic_derivatives(state_vector: list[float], context: ReactorBalanceContext) -> list[float]:
-    """断熱PFRの dF/dz と dT/dz を返す。"""
+    """断熱PFRの dF/dz、dT/dz、dP/dz を返す。"""
     flows_kmol_s = [max(value, 0.0) for value in state_vector[: len(COMPONENT_ORDER)]]
     temperature_k = max(state_vector[len(COMPONENT_ORDER)], 273.15)
+    pressure_pa = max(state_vector[len(COMPONENT_ORDER) + 1], 1.0)
     total_flow_kmol_s = max(sum(flows_kmol_s), 1e-18)
-    pressure_pa = context.pressure_kpa * context.universal.pa_per_kpa
     partial_pressures_pa = {
         name: pressure_pa * flow / total_flow_kmol_s
         for name, flow in zip(COMPONENT_ORDER, flows_kmol_s, strict=True)
@@ -81,7 +81,20 @@ def pfr_adiabatic_derivatives(state_vector: list[float], context: ReactorBalance
         for name, flow in zip(COMPONENT_ORDER, flows_kmol_s, strict=True)
     )
     temperature_derivative = -context.cross_section_area_m2 * reaction_heat_kj_per_m3_s / max(flow_heat_capacity_kj_per_s_k, 1e-18)
-    return component_derivatives + [temperature_derivative]
+    gas_density_kg_m3 = _gas_density_kg_m3(
+        flows_kmol_s=flows_kmol_s,
+        pressure_pa=pressure_pa,
+        temperature_k=temperature_k,
+        properties=context.properties,
+        universal=context.universal,
+    )
+    mass_velocity_kg_m2_s = _mass_flow_kg_s(flows_kmol_s=flows_kmol_s, properties=context.properties) / context.cross_section_area_m2
+    pressure_derivative = ergun_pressure_gradient_pa_per_m(
+        superficial_mass_velocity_kg_m2_s=mass_velocity_kg_m2_s,
+        gas_density_kg_m3=gas_density_kg_m3,
+        parameters=context.ergun_parameters,
+    )
+    return component_derivatives + [temperature_derivative, pressure_derivative]
 
 
 def radial_adiabatic_derivatives(state_vector: list[float], context: RadialBalanceContext) -> list[float]:

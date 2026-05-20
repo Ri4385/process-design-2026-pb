@@ -17,6 +17,7 @@ from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH, DEFAULT_HYSYS_RUN_T
 from process_sim.plant.models import PlantRunRecord
 from process_sim.plant.summary import (
     format_plant_run_summary,
+    format_pfr_reactor_report,
     format_radial_reactor_report,
     format_reactor_calculation_summary,
     format_recycle_product_component_summary,
@@ -66,8 +67,10 @@ def run_plant_once(
             raise TypeError("pfr reactor model requires ReactorCase")
         reactor_result = pfr_model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
     logger.info("reactor run finished in %.2f s", time.perf_counter() - reactor_started_at)
-    if selected_model == "radial" and log_reactor_detail:
+    if log_reactor_detail and selected_model == "radial":
         logger.info("\n%s", format_radial_reactor_report(feed=reactor_case.feed, result=reactor_result))
+    elif log_reactor_detail and selected_model == "pfr":
+        logger.info("\n%s", format_pfr_reactor_report(feed=reactor_case.feed, result=reactor_result))
     else:
         logger.info("\n%s", format_reactor_calculation_summary(feed=reactor_case.feed, result=reactor_result))
 
