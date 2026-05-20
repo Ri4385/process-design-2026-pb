@@ -104,12 +104,14 @@ scripts/
   run_plant_once.py                   # plant ワンパス実行
   run_reactor_case.py                 # 反応器単体実行
   run_reactor_to_decanter.py          # 反応器からデカンターへの接続試行
-docs/
+  docs/
   documentation-policy.md             # 文書運用方針
   optimization.md                     # 最適化設計メモ
   overview.md                         # 設定条件概要
   physical_property.md                # 物性メモ
-  reactor.md                          # 反応器設計メモ
+  reactor.md                          # 旧反応器設計メモ
+  pfr.md                              # PFR反応器実装メモ
+  radial-flow-reactor.md              # ラジアルフロー反応器実装メモ
   reports/                            # 作業記録
 src/process_sim/
   cli.py                              # CLI入口
@@ -214,7 +216,7 @@ src/process_sim/optimization/
 uv run run-reactor-case
 ```
 
-反応器単体は Python 側で完結して実行する。
+反応器単体は Python 側で完結して実行する。既定はラジアルフロー反応器である。PFR を使う場合は `--reactor-model pfr` を付ける。
 
 プラントのワンパス実行は以下で行う。
 
@@ -222,7 +224,7 @@ uv run run-reactor-case
 uv run run-plant-once
 ```
 
-既定では `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_CASE_PATH` に設定された HYSYS ケースを使う。別ケースを使う場合は `--case-path` で指定する。Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡し、主要 stream の要約を出力する。
+既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。既定では `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_CASE_PATH` に設定された HYSYS ケースを使う。別ケースを使う場合は `--case-path` で指定する。Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡し、主要 stream の要約を出力する。
 
 HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行する。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理し、CLI からは `--timeout-seconds` で変更できる。`--case-path` と `--hidden` は子プロセス側にも渡される。
 
@@ -236,7 +238,7 @@ HYSYS の表示設定は用途で分ける。手動確認やデバッグ用の s
 uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 ```
 
-`tune-plant-feed` は、目標 SM product 流量から初期 fresh feed と recycle 初期値を作り、2回目以降は直前 run の実効収率、未反応率、recycle 回収率から次回 fresh/recycle を計算する。secant 法は使わない。
+`tune-plant-feed` は、目標 SM product 流量から初期 fresh feed と recycle 初期値を作り、2回目以降は直前 run の実効収率、未反応率、recycle 回収率から次回 fresh/recycle を計算する。secant 法は使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
 
 主な引数は以下である。
 
@@ -265,7 +267,7 @@ uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 uv run run-plant-convergence
 ```
 
-この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。
+この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
 
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
 
@@ -275,7 +277,11 @@ uv run run-plant-convergence
 - `docs/overview.md`
   プロセス全体の条件、検討メモ、現状整理。人間のみが編集する。
 - `docs/reactor.md`
-  反応器モデルの仕様、入出力、ログ項目。
+  旧反応器モデルの仕様、入出力、ログ項目。
+- `docs/pfr.md`
+  多段断熱 PFR 反応器の実装メモ。
+- `docs/radial-flow-reactor.md`
+  ラジアルフロー反応器の実装メモ。
 - `docs/optimization.md`
   最適化まわりの探索範囲、候補条件、制約値。
 - `docs/documentation-policy.md`
