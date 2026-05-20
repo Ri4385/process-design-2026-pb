@@ -16,14 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import math
-import sys
 
 import matplotlib.pyplot as plt
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 from process_sim.reactor.core.pressure_drop import ErgunParameters
 from process_sim.reactor.core.radial_geometry import RadialBedGeometry
@@ -31,6 +25,7 @@ from process_sim.reactor.core.stream import ReactorStream
 from process_sim.reactor.types.pfr_adiabatic import PfrAdiabaticReactor
 from process_sim.reactor.types.radial_adiabatic import RadialAdiabaticReactor
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
 # -----------------------------------------------------------------------------
 # Fixed comparison case
