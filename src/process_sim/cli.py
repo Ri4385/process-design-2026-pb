@@ -115,7 +115,7 @@ def _stage_delta_lines(stage_log: ReactorStageLog) -> list[str]:
 
 
 def format_reactor_report(result: ReactorResult, payload: dict[str, Any]) -> str:
-    reactor_model = str(payload.get("reactor_model", "pfr"))
+    reactor_model = str(payload.get("reactor_model", "radial"))
     feed = radial_case_from_payload(payload).feed if reactor_model == "radial" else case_from_payload(payload).feed
     outlet = result.outlet.stream
     feed_flows = feed.to_component_flows_kmol_h()
