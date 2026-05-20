@@ -12,14 +12,18 @@ import sys
 import time
 from typing import Any
 
+from process_sim.cli import ReactorModelName
 from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH, DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS
 from process_sim.plant.models import PlantRunRecord
 from process_sim.plant.summary import (
     format_plant_run_summary,
+    format_radial_reactor_report,
     format_reactor_calculation_summary,
     format_recycle_product_component_summary,
 )
+from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE, RadialReactorCase
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
+from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.separator.hysys_io import run_hysys_separation_once
 
@@ -29,21 +33,43 @@ logger = logging.getLogger(__name__)
 
 def run_plant_once(
     case_path: Path = DEFAULT_HYSYS_CASE_PATH,
-    reactor_case: ReactorCase = DEFAULT_STYRENE_REACTOR_CASE,
+    reactor_case: ReactorCase | RadialReactorCase | None = None,
+    reactor_model: ReactorModelName = "radial",
     hysys_visible: bool = True,
+    log_reactor_detail: bool = True,
 ) -> PlantRunRecord:
     """反応器出口を HYSYS 分離系へ渡し、主要 stream を記録する。"""
+    selected_model = reactor_model
+    if reactor_case is None:
+        reactor_case = DEFAULT_STYRENE_RADIAL_REACTOR_CASE if reactor_model == "radial" else DEFAULT_STYRENE_REACTOR_CASE
+    elif isinstance(reactor_case, RadialReactorCase):
+        selected_model = "radial"
+    else:
+        selected_model = "pfr"
+
     plant_started_at = time.perf_counter()
     logger.info("plant run started")
     logger.info("HYSYS case path: %s", case_path.resolve())
     logger.info("HYSYS visible: %s", hysys_visible)
+    logger.info("reactor model: %s", selected_model)
 
-    model = StagedAdiabaticPfrModel()
     reactor_started_at = time.perf_counter()
     logger.info("reactor run started")
-    reactor_result = model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
+    if selected_model == "radial":
+        radial_model = StagedAdiabaticRadialFlowModel()
+        if not isinstance(reactor_case, RadialReactorCase):
+            raise TypeError("radial reactor model requires RadialReactorCase")
+        reactor_result = radial_model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
+    else:
+        pfr_model = StagedAdiabaticPfrModel()
+        if not isinstance(reactor_case, ReactorCase):
+            raise TypeError("pfr reactor model requires ReactorCase")
+        reactor_result = pfr_model.run(feed=reactor_case.feed, conditions=reactor_case.conditions)
     logger.info("reactor run finished in %.2f s", time.perf_counter() - reactor_started_at)
-    logger.info("\n%s", format_reactor_calculation_summary(feed=reactor_case.feed, result=reactor_result))
+    if selected_model == "radial" and log_reactor_detail:
+        logger.info("\n%s", format_radial_reactor_report(feed=reactor_case.feed, result=reactor_result))
+    else:
+        logger.info("\n%s", format_reactor_calculation_summary(feed=reactor_case.feed, result=reactor_result))
 
     separator_started_at = time.perf_counter()
     logger.info("separator run started")
@@ -58,6 +84,7 @@ def run_plant_once(
     metadata: dict[str, Any] = {
         **hysys_metadata,
         "reactor_case": asdict(reactor_case),
+        "reactor_model": selected_model,
         "reactor_feed": reactor_case.feed.to_component_flows_kmol_h(),
         "reactor_eb_conversion": reactor_result.eb_conversion,
         "reactor_styrene_selectivity": reactor_result.styrene_selectivity,
@@ -81,6 +108,7 @@ def run_plant_once_main() -> None:
     if not args.plant_run_worker:
         run_plant_once_with_subprocess_timeout(
             case_path=args.case_path,
+            reactor_model=args.reactor_model,
             hysys_visible=not args.hidden,
             timeout_seconds=args.timeout_seconds,
         )
@@ -88,6 +116,7 @@ def run_plant_once_main() -> None:
 
     record = run_plant_once(
         case_path=args.case_path,
+        reactor_model=args.reactor_model,
         hysys_visible=not args.hidden,
     )
     print(json.dumps(asdict(record), ensure_ascii=False, indent=2, default=str))
@@ -98,6 +127,7 @@ def run_plant_once_with_subprocess_timeout(
     case_path: Path,
     hysys_visible: bool,
     timeout_seconds: float,
+    reactor_model: ReactorModelName = "radial",
 ) -> None:
     """HYSYS 実行を子 Python プロセスに隔離して timeout をかける。"""
     command = [
@@ -107,6 +137,8 @@ def run_plant_once_with_subprocess_timeout(
         "--plant-run-worker",
         "--case-path",
         str(case_path),
+        "--reactor-model",
+        reactor_model,
     ]
     if not hysys_visible:
         command.append("--hidden")
@@ -130,6 +162,12 @@ def parse_plant_run_args() -> argparse.Namespace:
     """plant one-pass CLI の引数を読む。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--case-path", type=Path, default=DEFAULT_HYSYS_CASE_PATH)
+    parser.add_argument(
+        "--reactor-model",
+        choices=("radial", "pfr"),
+        default="radial",
+        help="使用する反応器モデル。既定は radial",
+    )
     parser.add_argument("--hidden", action="store_true", help="HYSYS GUI を表示しない")
     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS)
     parser.add_argument("--plant-run-worker", action="store_true", help=argparse.SUPPRESS)

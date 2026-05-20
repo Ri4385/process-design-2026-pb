@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from process_sim.cli import ReactorModelName
 from process_sim.plant.feed import (
     FreshFeed,
     FreshFeedPolicy,
@@ -27,6 +28,7 @@ from process_sim.plant.const import (
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
 from process_sim.plant.runner import configure_logging, run_plant_once
 from process_sim.plant.summary import format_final_plant_summary_section
+from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE, RadialReactorCase
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.core.stream import ReactorFeed
 
@@ -41,7 +43,8 @@ DEFAULT_MAX_RUNS = 5  # feed tuning 最大実行回数
 DEFAULT_MIN_RUNS = 1  # feed tuning 最小実行回数
 
 
-PlantRunner = Callable[[ReactorCase], PlantRunRecord]
+ReactorCaseLike = ReactorCase | RadialReactorCase
+PlantRunner = Callable[[ReactorCaseLike], PlantRunRecord]
 logger = logging.getLogger(__name__)
 
 
@@ -123,14 +126,27 @@ class FeedTuningResult:
         return min(self.runs, key=lambda run: abs(run.sm_error_kmol_h))
 
 
-def run_plant_once_for_reactor_case(case_path: Path, hysys_visible: bool) -> PlantRunner:
+def default_reactor_case_for_model(reactor_model: ReactorModelName) -> ReactorCaseLike:
+    """反応器モデル名に対応する既定ケースを返す。"""
+    if reactor_model == "radial":
+        return DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+    return DEFAULT_STYRENE_REACTOR_CASE
+
+
+def run_plant_once_for_reactor_case(
+    case_path: Path,
+    hysys_visible: bool,
+    reactor_model: ReactorModelName = "radial",
+) -> PlantRunner:
     """既存 runner を FeedTuning 用の callable に包む。"""
 
-    def _run(reactor_case: ReactorCase) -> PlantRunRecord:
+    def _run(reactor_case: ReactorCaseLike) -> PlantRunRecord:
         return run_plant_once(
             case_path=case_path,
             reactor_case=reactor_case,
+            reactor_model=reactor_model,
             hysys_visible=hysys_visible,
+            log_reactor_detail=False,
         )
 
     return _run
@@ -138,8 +154,9 @@ def run_plant_once_for_reactor_case(case_path: Path, hysys_visible: bool) -> Pla
 
 def tune_fresh_feed_fast(
     options: FeedTuningOptions = FeedTuningOptions(),
-    base_reactor_case: ReactorCase = DEFAULT_STYRENE_REACTOR_CASE,
+    base_reactor_case: ReactorCaseLike = DEFAULT_STYRENE_RADIAL_REACTOR_CASE,
     plant_runner: PlantRunner | None = None,
+    reactor_model: ReactorModelName = "radial",
 ) -> FeedTuningResult:
     """初期値と直前 run の実効係数から fresh/recycle を更新する。"""
     if options.max_runs < 1:
@@ -152,6 +169,7 @@ def tune_fresh_feed_fast(
     run_once = plant_runner or run_plant_once_for_reactor_case(
         case_path=DEFAULT_HYSYS_CASE_PATH,
         hysys_visible=False,
+        reactor_model=reactor_model,
     )
     initial_guess = build_initial_feed_guess(
         target_sm_kmol_h=options.target_sm_kmol_h,
@@ -608,6 +626,12 @@ def parse_feed_tuning_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-feed-step-fraction", type=float, default=FeedTuningOptions().max_feed_step_fraction)
     parser.add_argument("--case-path", type=Path, default=DEFAULT_HYSYS_CASE_PATH)
+    parser.add_argument(
+        "--reactor-model",
+        choices=("radial", "pfr"),
+        default="radial",
+        help="使用する反応器モデル。既定は radial",
+    )
     return parser.parse_args()
 
 
@@ -626,9 +650,12 @@ def tune_fresh_feed_fast_main() -> None:
     )
     result = tune_fresh_feed_fast(
         options=options,
+        base_reactor_case=default_reactor_case_for_model(args.reactor_model),
         plant_runner=run_plant_once_for_reactor_case(
             case_path=args.case_path,
             hysys_visible=False,
+            reactor_model=args.reactor_model,
         ),
+        reactor_model=args.reactor_model,
     )
     print(format_feed_tuning_result(result))
