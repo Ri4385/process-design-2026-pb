@@ -9,6 +9,7 @@ description = "Process design workspace for EB to styrene project"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "matplotlib>=3.10.9",
     "pywin32>=311",
 ]
 

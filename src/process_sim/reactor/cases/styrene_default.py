@@ -17,15 +17,15 @@ class ReactorCase:
 
 
 DEFAULT_STYRENE_FEED = ReactorFeed(
-    eb=605.9,
-    steam=3029.5,
-    styrene=0.0606,
-    hydrogen=0.0,
-    benzene=0.0606,
-    toluene=0.0606,
-    co2=0.0,
+    eb=395.707,
+    steam=1978.349,
+    styrene=0.495,
+    hydrogen=0.025,
+    benzene=1.393,
+    toluene=1.998,
+    co2=0.053,
     ethylene=0.0,
-    methane=0.0,
+    methane=0.004,
     co=0.0,
 )
 
