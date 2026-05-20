@@ -3,13 +3,16 @@ import pytest
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
 from process_sim.constants.reaction_networks import STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS
+from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
 from process_sim.reactor.core.reaction import reaction_rates
 from process_sim.reactor.core.stream import COMPONENT_ORDER
 from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmol, standard_reaction_enthalpy_kj_per_kmol
+from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.cli import default_case_payload, format_reactor_report
+from process_sim.plant.summary import format_radial_reactor_report
 
 
 def test_physical_properties_match_documented_values() -> None:
@@ -115,6 +118,20 @@ def test_staged_adiabatic_reactor_produces_stage_logs() -> None:
     assert result.log.cross_section_area_m2 > 0.0
 
 
+def test_radial_reactor_produces_pressure_and_atom_balance_logs() -> None:
+    model = StagedAdiabaticRadialFlowModel()
+    case = DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+
+    result = model.run(feed=case.feed, conditions=case.conditions)
+
+    assert len(result.log.stage_logs) == 3
+    assert result.outlet.pressure_kpa > 30.0
+    assert result.log.reactor_pressure_drop_kpa is not None
+    assert result.log.reheat_pressure_drop_kpa == pytest.approx(40.0)
+    assert result.log.atom_balance_ok is True
+    assert result.log.max_re_over_one_minus_void is not None
+
+
 def test_reactor_result_remains_non_negative() -> None:
     model = StagedAdiabaticPfrModel()
     case = DEFAULT_STYRENE_REACTOR_CASE
@@ -145,7 +162,7 @@ def test_human_readable_report_contains_expected_sections() -> None:
     case = DEFAULT_STYRENE_REACTOR_CASE
 
     result = model.run(feed=case.feed, conditions=case.conditions)
-    report = format_reactor_report(result=result, payload=default_case_payload())
+    report = format_reactor_report(result=result, payload=default_case_payload("pfr"))
 
     assert "反応器ログ" in report
     assert "入口条件 feed" in report
@@ -156,3 +173,20 @@ def test_human_readable_report_contains_expected_sections() -> None:
     assert "第1段" in report
     assert "第2段" in report
     assert "第3段" in report
+
+
+def test_radial_reactor_report_contains_design_sections() -> None:
+    model = StagedAdiabaticRadialFlowModel()
+    case = DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+
+    result = model.run(feed=case.feed, conditions=case.conditions)
+    report = format_radial_reactor_report(feed=case.feed, result=result)
+
+    assert "[Radial Reactor Summary]" in report
+    assert "[Feed]" in report
+    assert "[Overall]" in report
+    assert "[Stage Summary]" in report
+    assert "[Stage Outlet Molar Flows, kmol/h]" in report
+    assert "atom balance:" in report
+    assert "constraints:" in report
+    assert "reheat pressure drop" in report

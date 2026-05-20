@@ -188,6 +188,8 @@ def test_plant_runner_subprocess_receives_case_path_and_hidden_flag(monkeypatch:
     assert isinstance(command, list)
     assert "--case-path" in command
     assert str(Path("data/hysys/custom.hsc")) in command
+    assert "--reactor-model" in command
+    assert "radial" in command
     assert "--hidden" in command
     assert captured["timeout"] == pytest.approx(12.5)
     assert captured["check"] is False
