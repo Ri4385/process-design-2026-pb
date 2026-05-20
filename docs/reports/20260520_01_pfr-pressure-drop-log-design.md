@@ -62,10 +62,10 @@ tests/
 
 PFR では、軸方向位置 `z` に沿って Ergun 式を適用する。
 
-反応器断面積は現行通り、入口体積流量と入口空塔速度から逆算する。
+反応器断面積は、指定した総触媒体積と総段長から決める。
 
 ```text
-A_c = inlet volumetric flow / inlet superficial velocity
+A_c = V_cat,total / L_total
 ```
 
 局所の superficial mass velocity は、局所 stream の質量流量を一定断面積で割って求める。
@@ -138,11 +138,12 @@ W_i = rho_b * V_cat,i
 
 PFR の既定入口圧力は、radial と比較しやすくするため、一旦 `200 kPa abs` に揃える。
 
-PFR の段長は、現行値 `1.5, 3.0, 3.0 m` のままでは radial の staged 条件と比較したときに意図が読み取りにくい。したがって、実装時には適当な丸めた値へ揃える。初期案は `2.5, 2.5, 2.5 m` とする。ただし、この値は最終設計値ではなく、PFR と radial の圧損分布を比較するための比較用条件である。
+PFR の段長は、現行値 `1.5, 3.0, 3.0 m` のままでは radial の staged 条件と比較したときに意図が読み取りにくい。したがって、比較用条件として `2.5, 2.5, 2.5 m` に揃える。この値は最終設計値ではなく、PFR と radial の圧損分布を比較するための条件である。
 
-反応器断面積は現行通り、入口体積流量と入口空塔速度から逆算する。反応器径を独立した設計変数にはしない。ただし、断面積と等価直径はログに明示する。
+反応器断面積は入口空塔速度から逆算しない。radial 既定ケースの総触媒体積と同じ `99.313 m3` を PFR にも与え、総段長 `7.5 m` で割って断面積を決める。反応器径を独立した設計変数にはしない。ただし、断面積と等価直径はログに明示する。
 
 ```text
+A_c = V_cat,total / L_total
 D_eq = sqrt(4 * A_c / pi)
 ```
 
@@ -158,9 +159,7 @@ class ReactorRunConditions:
     pressure_kpa: float
     stage_inlet_temperatures_c: tuple[float, ...]
     stage_lengths_m: tuple[float, ...]
-    inlet_superficial_velocity_m_per_s: float
-    segments_per_stage: int
-    profile_points_per_stage: int
+    total_catalyst_volume_m3: float
     pellet_diameter_m: float
     bed_void_fraction: float
     catalyst_bulk_density_kg_m3: float
@@ -168,6 +167,8 @@ class ReactorRunConditions:
     ergun_b: float
     gas_viscosity_pa_s: float
     interstage_reheater_pressure_drop_pa: float
+    segments_per_stage: int
+    profile_points_per_stage: int
 ```
 
 `pressure_kpa` は既存互換のため名前を維持する。ただし、圧損追加後の意味は「反応器列入口圧力」である。実装上は段内計算の開始時に Pa へ変換する。
@@ -299,11 +300,11 @@ PFR 用に `format_pfr_reactor_report` を追加する。radial の `format_radi
   outlet P [kPa abs]                 185.000        152.000        120.000
   reactor pressure drop [kPa]         15.000         13.000         12.000
   reheat pressure drop [kPa]          20.000         20.000              -
-  stage length [m]                     1.500          3.000          3.000
-  cross section area [m2]              1.000          1.000          1.000
-  equivalent diameter [m]              1.128          1.128          1.128
-  catalyst volume [m3]                 1.500          3.000          3.000
-  catalyst mass [kg]                  2,133          4,266          4,266
+  stage length [m]                     2.500          2.500          2.500
+  cross section area [m2]             13.242         13.242         13.242
+  equivalent diameter [m]              4.106          4.106          4.106
+  catalyst volume [m3]                33.104         33.104         33.104
+  catalyst mass [kg]                 47,074         47,074         47,074
   inlet velocity [m/s]                 1.930          2.100          2.300
   outlet velocity [m/s]                2.050          2.250          2.500
   min Re/(1-eps) [-]                  250.0          270.0          290.0
@@ -372,7 +373,7 @@ README.md                             # 変更可能性あり
 
 ### `src/process_sim/reactor/cases/styrene_default.py`
 
-必ず変更する。PFR 既定条件に、粒子径、空隙率、バルク密度、Ergun 係数、粘度、段間再加熱器圧力損失を追加する。初期値は radial と同じ値を使う。入口圧力は `200 kPa abs` にする。段長は比較用に丸めた値へ揃える。
+必ず変更する。PFR 既定条件に、総触媒体積、粒子径、空隙率、バルク密度、Ergun 係数、粘度、段間再加熱器圧力損失を追加する。初期値は radial と同じ値を使う。入口圧力は `200 kPa abs` にする。段長は比較用に `2.5, 2.5, 2.5 m` へ揃える。
 
 ### `src/process_sim/reactor/core/balance.py`
 
@@ -477,5 +478,5 @@ staged PFR と staged radial の比較では、段ごとの入口・出口圧力
 
 ## 未確定事項
 
-- PFR の段長は比較用に丸めた値へ揃える方針である。初期案は `2.5, 2.5, 2.5 m` とするが、最終的な比較条件として適切かは実装後の結果を見て確認する。
-- PFR の断面積は現行通り入口空塔速度から逆算する。反応器径を独立した設計変数にはしないが、断面積と等価直径はログに明示する。
+- PFR の段長は比較用に `2.5, 2.5, 2.5 m` とする。最終的な設計条件として適切かは、PFR と radial の圧損分布比較後に確認する。
+- PFR の断面積は総触媒体積と総段長から決める。反応器径を独立した設計変数にはしないが、断面積と等価直径はログに明示する。
