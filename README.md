@@ -10,11 +10,11 @@
 
 扱う反応系は、SMの生成である反応1を主反応とする下記の6反応である。
 
-反応1		C6H5-CH2CH3 (EB) ⇄ C6H5-CH=CH2 (SM) + H2
-反応2		C6H5-CH2CH3 (EB) → C6H6 (BZ) + C2H4
-反応3		C6H5-CH2CH3 (EB) + H2 → C6H5-CH3 (TL) + CH4
-反応4		2H2O + C2H4 → 2CO + 4H2
-反応5		H2O + CH4 → CO + 3H2
+反応1		C6H5-CH2CH3 (EB) ⇄ C6H5-CH=CH2 (SM) + H2\
+反応2		C6H5-CH2CH3 (EB) → C6H6 (BZ) + C2H4\
+反応3		C6H5-CH2CH3 (EB) + H2 → C6H5-CH3 (TL) + CH4\
+反応4		2H2O + C2H4 → 2CO + 4H2\
+反応5		H2O + CH4 → CO + 3H2\
 反応6		H2O + CO → CO2 + H2
 
 ## プロセスフロー

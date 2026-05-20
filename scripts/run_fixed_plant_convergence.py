@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
-from process_sim.plant.convergence import (  # noqa: E402
+from process_sim.plant.convergence import (
     PlantFeedPlan,
     format_plant_convergence_result,
     run_fixed_feed_convergence,
 )
-from process_sim.plant.feed import FreshFeed  # noqa: E402
-from process_sim.reactor.core.stream import ReactorFeed  # noqa: E402
+from process_sim.plant.feed import FreshFeed
+from process_sim.reactor.core.stream import ReactorFeed
 
 
 FEED_PLAN = PlantFeedPlan(

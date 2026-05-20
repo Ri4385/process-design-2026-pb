@@ -105,6 +105,7 @@ class ReactorStageLog:
     max_re_over_one_minus_void: float | None = None
     carbon_balance_error_fraction: float | None = None
     hydrogen_balance_error_fraction: float | None = None
+    pressure_positive_ok: bool | None = None
 
 
 @dataclass(frozen=True)

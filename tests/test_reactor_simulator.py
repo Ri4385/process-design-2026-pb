@@ -190,6 +190,32 @@ def test_staged_adiabatic_reactor_produces_stage_logs() -> None:
     assert result.log.reheat_pressure_drop_kpa == pytest.approx(40.0)
 
 
+def test_pfr_pressure_positive_check_uses_unclipped_pressure() -> None:
+    model = StagedAdiabaticPfrModel()
+    case = make_test_pfr_case()
+    conditions = ReactorRunConditions(
+        pressure_kpa=50.0,
+        stage_inlet_temperatures_c=(550.0,),
+        stage_lengths_m=(10.0,),
+        total_catalyst_volume_m3=0.1,
+        pellet_diameter_m=case.conditions.pellet_diameter_m,
+        bed_void_fraction=case.conditions.bed_void_fraction,
+        catalyst_bulk_density_kg_m3=case.conditions.catalyst_bulk_density_kg_m3,
+        ergun_a=case.conditions.ergun_a,
+        ergun_b=case.conditions.ergun_b,
+        gas_viscosity_pa_s=case.conditions.gas_viscosity_pa_s,
+        interstage_reheater_pressure_drop_pa=0.0,
+        segments_per_stage=50,
+        profile_points_per_stage=5,
+    )
+
+    result = model.run(feed=case.feed, conditions=conditions)
+
+    assert result.outlet.pressure_kpa > 0.0
+    assert result.log.stage_logs[0].pressure_positive_ok is False
+    assert result.log.pressure_positive_ok is False
+
+
 def test_radial_reactor_produces_pressure_and_atom_balance_logs() -> None:
     model = StagedAdiabaticRadialFlowModel()
     case = make_test_radial_case()

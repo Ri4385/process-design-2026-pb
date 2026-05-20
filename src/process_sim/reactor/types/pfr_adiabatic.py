@@ -69,6 +69,7 @@ class PfrAdiabaticReactor:
         profile_stride = max(1, segments // profile_points)
         profile: list[ReactorProfilePoint] = []
         re_values: list[float] = []
+        pressure_positive_ok = inlet_pressure_pa > 0.0
 
         inlet_velocity_m_per_s = self._superficial_velocity_m_per_s(
             stream=inlet,
@@ -106,7 +107,9 @@ class PfrAdiabaticReactor:
             )
             current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
             current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
-            current_pressure_pa = max(next_state[len(COMPONENT_ORDER) + 1], 1.0)
+            raw_pressure_pa = next_state[len(COMPONENT_ORDER) + 1]
+            pressure_positive_ok = pressure_positive_ok and raw_pressure_pa > 0.0
+            current_pressure_pa = max(raw_pressure_pa, 1.0)
             current_stream = ReactorStream.from_vector_kmol_s(current_vector)
             re_values.append(
                 self._re_over_one_minus_void(
@@ -170,6 +173,7 @@ class PfrAdiabaticReactor:
             max_re_over_one_minus_void=max(re_values) if re_values else None,
             carbon_balance_error_fraction=carbon_error,
             hydrogen_balance_error_fraction=hydrogen_error,
+            pressure_positive_ok=pressure_positive_ok,
         )
         return PfrReactorStageResult(
             outlet=outlet_state,
