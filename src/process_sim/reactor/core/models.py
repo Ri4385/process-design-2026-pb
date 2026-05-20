@@ -14,7 +14,14 @@ class ReactorRunConditions:
     pressure_kpa: float
     stage_inlet_temperatures_c: tuple[float, ...]
     stage_lengths_m: tuple[float, ...]
-    inlet_superficial_velocity_m_per_s: float
+    total_catalyst_volume_m3: float
+    pellet_diameter_m: float
+    bed_void_fraction: float
+    catalyst_bulk_density_kg_m3: float
+    ergun_a: float
+    ergun_b: float
+    gas_viscosity_pa_s: float
+    interstage_reheater_pressure_drop_pa: float
     segments_per_stage: int
     profile_points_per_stage: int
 
