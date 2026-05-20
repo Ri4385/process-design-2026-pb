@@ -56,6 +56,7 @@ class StagedAdiabaticRadialFlowModel:
         stage_logs: list[ReactorStageLog] = []
         profile: list[ReactorProfilePoint] = []
         outlet_state: ReactorState | None = None
+        interstage_pressure_positive_values: list[bool] = []
 
         for stage_index, (stage_temperature_k, bed_thickness_m) in enumerate(
             zip(conditions.stage_inlet_temperatures_k, conditions.bed_thicknesses_m, strict=True),
@@ -93,7 +94,9 @@ class StagedAdiabaticRadialFlowModel:
                 reheat_pressure_drop_kpa = (
                     conditions.interstage_reheater_pressure_drop_pa / self.universal.pa_per_kpa
                 )
-                current_pressure_pa = max(current_pressure_pa - conditions.interstage_reheater_pressure_drop_pa, 1.0)
+                raw_reheat_outlet_pressure_pa = current_pressure_pa - conditions.interstage_reheater_pressure_drop_pa
+                interstage_pressure_positive_values.append(raw_reheat_outlet_pressure_pa > 0.0)
+                current_pressure_pa = max(raw_reheat_outlet_pressure_pa, 1.0)
 
             stage_logs.append(
                 replace(
@@ -135,10 +138,8 @@ class StagedAdiabaticRadialFlowModel:
             hydrogen_balance_error_fraction=hydrogen_error,
             atom_balance_ok=carbon_error < 1e-8 and hydrogen_error < 1e-8,
             outlet_pressure_ok=outlet_state.pressure_kpa >= 30.0,
-            pressure_positive_ok=all(
-                point.pressure_kpa is None or point.pressure_kpa > 0.0
-                for point in profile
-            ),
+            pressure_positive_ok=all(log.pressure_positive_ok is not False for log in stage_logs)
+            and all(interstage_pressure_positive_values),
             ergun_range_ok=max_re < 500.0,
         )
         return ReactorResult(
