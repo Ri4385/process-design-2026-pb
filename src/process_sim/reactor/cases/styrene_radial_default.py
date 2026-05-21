@@ -18,11 +18,11 @@ class RadialReactorCase:
 
 
 DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
-    inlet_pressure_pa=130_000.0,
-    stage_inlet_temperatures_k=(900.0, 900.0, 900.0),
-    bed_inner_radius_m=1.0,
+    inlet_pressure_pa=112_330.0,
+    stage_inlet_temperatures_k=(273.15 + 633.34, 273.15 + 609.44, 273.15 + 640.43),
+    inlet_superficial_velocity_m_per_s=2.0,
     bed_height_m=5.0,
-    bed_thicknesses_m=(0.90, 0.90, 0.90),
+    bed_thicknesses_m=(0.6714, 0.9497, 1.0617),
     pellet_diameter_m=0.003,
     bed_void_fraction=0.4312,
     catalyst_bulk_density_kg_m3=1422.0,

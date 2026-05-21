@@ -32,7 +32,7 @@ class RadialReactorRunConditions:
 
     inlet_pressure_pa: float
     stage_inlet_temperatures_k: tuple[float, ...]
-    bed_inner_radius_m: float
+    inlet_superficial_velocity_m_per_s: float
     bed_height_m: float
     bed_thicknesses_m: tuple[float, ...]
     pellet_diameter_m: float

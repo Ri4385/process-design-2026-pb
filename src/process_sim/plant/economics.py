@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
+from process_sim.plant.const import HOURS_PER_YEAR
+from process_sim.reactor.core.models import ReactorResult
+from process_sim.reactor.core.stream import ReactorFeed
 
 
 FEED_PRICE_YEN_PER_KG: dict[str, float] = {
@@ -24,6 +28,70 @@ VALUABLE_COMPONENT_PRICE_YEN_PER_KG: dict[str, float] = {
     "benzene": PRODUCT_PRICE_YEN_PER_KG["benzene"],
     "toluene": PRODUCT_PRICE_YEN_PER_KG["toluene"],
 }
+
+
+@dataclass(frozen=True)
+class SimpleProfitBreakdown:
+    """簡易経済評価の内訳。"""
+
+    revenue_yen_per_year: float
+    feed_cost_yen_per_year: float
+    reactor_annual_cost_yen_per_year: float
+    objective_yen_per_year: float
+
+
+def radial_reactor_capital_cost_yen(result: ReactorResult) -> float:
+    """radial 反応器本体の装置費を計算する。"""
+    total_cost_yen = 0.0
+    for stage_log in result.log.stage_logs:
+        if stage_log.outer_radius_m is None or stage_log.bed_height_m is None:
+            raise ValueError("radial reactor stage log must include outer_radius_m and bed_height_m")
+        reactor_diameter_m = 2.0 * stage_log.outer_radius_m
+        total_cost_yen += 20_000_000.0 * reactor_diameter_m**1.066 * stage_log.bed_height_m**0.82
+    return total_cost_yen
+
+
+def annualized_reactor_cost_yen_per_year(capital_cost_yen: float) -> float:
+    """7年定額償却で反応器本体費を年換算する。"""
+    return capital_cost_yen / 7.0
+
+
+def simple_reactor_profit_breakdown(feed: ReactorFeed, result: ReactorResult) -> SimpleProfitBreakdown:
+    """反応器出口基準の簡易利益を計算する。"""
+    revenue_yen_per_year = component_value_yen_per_year(
+        component_id="styrene",
+        flow_kmol_h=max(result.outlet.stream.styrene - feed.styrene, 0.0),
+        price_yen_per_kg=PRODUCT_PRICE_YEN_PER_KG["styrene"],
+    )
+    feed_cost_yen_per_year = component_value_yen_per_year(
+        component_id="eb",
+        flow_kmol_h=feed.eb,
+        price_yen_per_kg=FEED_PRICE_YEN_PER_KG["eb"],
+    ) + component_value_yen_per_year(
+        component_id="steam",
+        flow_kmol_h=feed.steam,
+        price_yen_per_kg=FEED_PRICE_YEN_PER_KG["steam"],
+    )
+    reactor_annual_cost_yen_per_year = annualized_reactor_cost_yen_per_year(
+        radial_reactor_capital_cost_yen(result)
+    )
+    objective_yen_per_year = (
+        revenue_yen_per_year
+        - feed_cost_yen_per_year
+        - reactor_annual_cost_yen_per_year
+    )
+    return SimpleProfitBreakdown(
+        revenue_yen_per_year=revenue_yen_per_year,
+        feed_cost_yen_per_year=feed_cost_yen_per_year,
+        reactor_annual_cost_yen_per_year=reactor_annual_cost_yen_per_year,
+        objective_yen_per_year=objective_yen_per_year,
+    )
+
+
+def component_value_yen_per_year(component_id: str, flow_kmol_h: float, price_yen_per_kg: float) -> float:
+    """成分流量と単価から年間価値を計算する。"""
+    physical_property = SPECIES_PHYSICAL_PROPERTIES[component_id]
+    return flow_kmol_h * physical_property.molecular_weight * price_yen_per_kg * HOURS_PER_YEAR
 
 
 def cooling_utility_cost_yen_per_year(

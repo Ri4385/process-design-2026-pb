@@ -249,6 +249,7 @@ def format_radial_stage_summary(stage_logs: tuple[ReactorStageLog, ...]) -> list
         ("reactor pressure drop [kPa]", [log.reactor_pressure_drop_kpa for log in stage_logs], 3),
         ("reheat pressure drop [kPa]", [log.reheat_pressure_drop_kpa for log in stage_logs], 3),
         ("inner radius [m]", [log.inner_radius_m for log in stage_logs], 3),
+        ("inner diameter [m]", [optional_double(log.inner_radius_m) for log in stage_logs], 3),
         ("outer radius [m]", [log.outer_radius_m for log in stage_logs], 3),
         ("bed height [m]", [log.bed_height_m for log in stage_logs], 3),
         ("bed thickness [m]", [log.bed_thickness_m for log in stage_logs], 3),
@@ -314,6 +315,13 @@ def optional_percent(value: float | None) -> float | None:
     if value is None:
         return None
     return value * 100.0
+
+
+def optional_double(value: float | None) -> float | None:
+    """None を保ったまま2倍値へ変換する。"""
+    if value is None:
+        return None
+    return value * 2.0
 
 
 def format_ok(value: bool | None) -> str:
