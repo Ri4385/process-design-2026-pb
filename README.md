@@ -264,6 +264,14 @@ uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 
 収束判定では、SM が目標以上かつ過剰分が許容内であること、EB recycle と H2O recycle の自己一致誤差が許容内であることを見る。各 run 後に feed/SM と recycle consistency の累積表を logging で標準エラーへ出す。
 
+HYSYS case を開いたまま production target を実行する場合は、以下を使う。
+
+```powershell
+uv run fast-production-target
+```
+
+この入口は CLI 引数を持たない。既定の HYSYS case、既定 target SM、既定 radial 反応器を使い、HYSYS 表示は `False` 固定である。
+
 正式な recycle 収束計算は以下で行う。
 
 ```powershell
@@ -271,6 +279,14 @@ uv run run-plant-convergence
 ```
 
 この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
+
+HYSYS case を開いたまま production target から recycle convergence まで連続実行する場合は、以下を使う。
+
+```powershell
+uv run fast-plant-convergence
+```
+
+この入口も CLI 引数を持たない。production target と convergence で同じ HYSYS session を使い、途中で case を開き直さない。HYSYS 表示は `False` 固定である。
 
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
 

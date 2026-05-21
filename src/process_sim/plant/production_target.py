@@ -39,8 +39,8 @@ DEFAULT_SINGLE_PASS_SM_YIELD_FROM_EB = 0.50  # 初期値生成用の EB 基準 S
 DEFAULT_EB_RECYCLE_FRACTION = 0.99  # 初期値生成用の未反応 EB recycle 率
 DEFAULT_H2O_RECYCLE_FRACTION = 0.99  # 初期値生成用の H2O recycle 率
 DEFAULT_STEAM_TO_EB_RATIO = 5.0  # 初期値生成用の reactor inlet H2O/EB 比
-DEFAULT_MAX_RUNS = 5  # feed tuning 最大実行回数
-DEFAULT_MIN_RUNS = 1  # feed tuning 最小実行回数
+DEFAULT_MAX_RUNS = 10  # feed tuning 最大実行回数
+DEFAULT_MIN_RUNS = 5  # feed tuning 最小実行回数
 
 
 ReactorCaseLike = ReactorCase | RadialReactorCase
