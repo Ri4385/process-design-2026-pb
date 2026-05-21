@@ -7,36 +7,44 @@
 1. radial flow 反応器で、入口空塔速度を `2.0 m/s` に合わせて内径を調整する。
 2. 原料費、収入、反応器装置コストだけを使う簡易 Optuna tuning を追加する。
 
-本設計では、HYSYS 分離系の操作条件最適化、recycle 収束、用役費、蒸留塔コスト、ヒートインテグレーションは対象外とする。
+本設計では、最初の実装を反応器出口までの簡易評価に限定する。HYSYS 分離系はこの後すぐ接続対象になるが、今回の詳細設計では、まず反応器条件と簡易経済評価を独立に動かせる形を作る。
 
-## 現状確認
+## 変更するディレクトリ概略
 
-現行 radial 実装は次の構成である。
+今回変更または追加するファイルは次の通りである。
 
 ```text
 src/process_sim/reactor/
   cases/
-    styrene_radial_default.py        # radial 既定ケース
+    styrene_radial_default.py        # radial 既定条件。入口空塔速度2.0 m/sを固定値として持つ。
   core/
-    models.py                        # RadialReactorRunConditions など
-    radial_geometry.py               # radial 触媒床幾何
+    models.py                        # RadialReactorRunConditions から bed_inner_radius_m を外す。
+    radial_geometry.py               # 内半径、外半径、流通面積、触媒体積を計算する。
   types/
-    radial_adiabatic.py              # 1基分の radial 反応器
-    staged_adiabatic_radial.py       # 多段 radial 反応器
+    radial_adiabatic.py              # 1基分の radial 反応器。渡された幾何で計算する。
+    staged_adiabatic_radial.py       # 多段 radial 反応器。各段入口条件から各段の内半径を計算する。
+src/process_sim/plant/
+  economics.py                       # 既存価格、反応器コスト関数、簡易利益計算を置く。
+  const.py                           # 年間稼働時間など既存の plant 固定値を使う。
 src/process_sim/optimization/
-  models.py                          # ParameterRange
   reactor/
-    parameters.py                    # 反応器探索範囲
-    constraints.py                   # 反応器制約
+    parameters.py                    # radial 用の触媒層厚み範囲と候補条件を追加する。
+    constraints.py                   # radial 用の制約値を追加する。
+  runner/
+    radial_simple_optuna.py          # ファイル内定数を直接編集して Optuna を実行する。
+docs/
+  cost.md                            # 価格とコスト推算式の根拠。既存文書を参照する。
+  radial-flow-reactor.md             # radial 実装メモを更新する。
+  optimization.md                    # 簡易 tuning の実装範囲を更新する。
 ```
 
-現行の `RadialReactorRunConditions` は `bed_inner_radius_m` を固定値として持つ。既定値は `src/process_sim/reactor/cases/styrene_radial_default.py` で `1.0 m` である。
+現行の `RadialReactorRunConditions` は `bed_inner_radius_m` を固定値として持つ。今回の変更では、固定内半径を条件から外し、入口空塔速度から一意に計算する。
 
 ## radial 内径調整
 
 ### 結論
 
-radial flow では、入口空塔速度 `2.0 m/s` を設計値として使い、第1段入口条件から触媒床内半径を逆算する。
+radial flow では、入口空塔速度 `2.0 m/s` を設計値として使い、各段入口条件から各段の触媒床内半径を逆算する。
 
 流通断面積は radial flow の円筒面積なので、通常の円断面積ではなく次式を使う。
 
@@ -47,7 +55,7 @@ r_in = A_in / (2πH)
 D_in = 2 r_in
 ```
 
-ここで、`Q_in` は第1段入口の体積流量、`u_in` は入口空塔速度、`H` は触媒床高さである。
+ここで、`Q_in` は各段入口の体積流量、`u_in` は入口空塔速度、`H` は触媒床高さである。
 
 ### 変更する型
 
@@ -58,8 +66,7 @@ D_in = 2 r_in
 class RadialReactorRunConditions:
     inlet_pressure_pa: float
     stage_inlet_temperatures_k: tuple[float, ...]
-    bed_inner_radius_m: float
-    target_inlet_superficial_velocity_m_per_s: float | None
+    inlet_superficial_velocity_m_per_s: float
     bed_height_m: float
     bed_thicknesses_m: tuple[float, ...]
     pellet_diameter_m: float
@@ -73,16 +80,16 @@ class RadialReactorRunConditions:
     profile_points_per_stage: int
 ```
 
-`target_inlet_superficial_velocity_m_per_s` が `None` の場合は、既存通り `bed_inner_radius_m` を使う。値がある場合は、実行時に `bed_inner_radius_m` を再計算する。
+`bed_inner_radius_m` は削除する。`inlet_superficial_velocity_m_per_s` は必須値とし、`None` や fallback は持たせない。これにより、内半径の出所が常に入口空塔速度からの計算に限定される。
 
 ### 計算責務
 
 `src/process_sim/reactor/types/staged_adiabatic_radial.py`
 
-- `StagedAdiabaticRadialFlowModel.run()` の冒頭で、実際に使う `effective_bed_inner_radius_m` を決める。
-- 第1段入口 stream、第1段入口温度、反応器列入口圧力、触媒床高さから入口体積流量を計算する。
-- `target_inlet_superficial_velocity_m_per_s` が指定されている場合は、上式で `effective_bed_inner_radius_m` を計算する。
-- 各段の `RadialBedGeometry` には、計算後の `effective_bed_inner_radius_m` を渡す。
+- `StagedAdiabaticRadialFlowModel.run()` の各段計算直前に、その段で使う `bed_inner_radius_m` を計算する。
+- 各段入口 stream、各段入口温度、各段入口圧力、触媒床高さから入口体積流量を計算する。
+- `conditions.inlet_superficial_velocity_m_per_s` から、各段入口空塔速度が `2.0 m/s` になる内半径を計算する。
+- 各段の `RadialBedGeometry` には、計算後の `bed_inner_radius_m` を渡す。
 
 `src/process_sim/reactor/types/radial_adiabatic.py`
 
@@ -97,14 +104,13 @@ class RadialReactorRunConditions:
 DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
     inlet_pressure_pa=130_000.0,
     stage_inlet_temperatures_k=(900.0, 900.0, 900.0),
-    bed_inner_radius_m=1.0,
-    target_inlet_superficial_velocity_m_per_s=2.0,
+    inlet_superficial_velocity_m_per_s=2.0,
     bed_height_m=5.0,
     ...
 )
 ```
 
-`bed_inner_radius_m=1.0` は fallback 値として残す。実際の既定実行では `target_inlet_superficial_velocity_m_per_s=2.0` により内半径を再計算する。
+内半径は既定ケースに置かない。既定実行でも探索実行でも、入口空塔速度 `2.0 m/s` と各段入口体積流量から段ごとに計算する。
 
 ### ログ表示
 
@@ -112,13 +118,13 @@ DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
 
 - 既存の stage summary に `inner diameter [m]` を追加する。
 - `inner diameter [m]` は `2 * inner_radius_m` で表示する。
-- `inlet velocity [m/s]` は既存通り表示し、既定ケースで第1段入口が `2.0 m/s` 付近になることを確認できるようにする。
+- `inlet velocity [m/s]` は既存通り表示し、各段入口が `2.0 m/s` 付近になることを確認できるようにする。
 
 ## 簡易 Optuna tuning
 
 ### 結論
 
-初期版は Python 反応器単体を評価対象にする。HYSYS 分離系を含めない。
+初期版は Python 反応器単体を評価対象にする。HYSYS 分離系は後続で接続する前提とし、今回のファイル構成では目的関数を差し替えやすくしておく。
 
 目的関数は次の形にする。
 
@@ -126,47 +132,29 @@ DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
 objective = revenue - feed_cost - annualized_reactor_cost
 ```
 
-ただし、価格、運転時間、装置費係数は未確定であるため、実装時に固定値として勝手に入れない。値は設定 dataclass または JSON 入力で与える設計にする。
+価格と年間稼働時間は既存文書と既存コードの値を使う。価格推算方法は `docs/cost.md`、年間稼働時間は `src/process_sim/plant/const.py` の `HOURS_PER_YEAR = 8000.0` を正とする。
 
-### 追加する構成
+### 実装構成
 
 ```text
+src/process_sim/plant/
+  economics.py                     # 価格、反応器コスト、簡易利益計算
 src/process_sim/optimization/
-  economics/
-    __init__.py                    # package docstring のみ
-    models.py                      # 経済評価の入力値と内訳モデル
-    simple_profit.py               # 収入、原料費、反応器年換算コスト
-  objective/
-    __init__.py                    # package docstring のみ
-    radial_simple_profit.py        # trial から radial case を作って評価
   runner/
-    __init__.py                    # package docstring のみ
-    optuna_runner.py               # Optuna study 実行入口
+    radial_simple_optuna.py        # ファイル冒頭の定数を編集して実行する Optuna runner
 ```
 
 ### ファイル責務
 
-`src/process_sim/optimization/economics/models.py`
+`src/process_sim/plant/economics.py`
 
-- `SimpleEconomicConfig` を定義する。
-- `SimpleProfitBreakdown` を定義する。
-- 価格、運転時間、装置費係数など、目的関数に必要な数値を明示的な入力として持つ。
+- 既存の `FEED_PRICE_YEN_PER_KG` と `PRODUCT_PRICE_YEN_PER_KG` を使う。
+- `docs/cost.md` の反応器コスト式を関数化する。
+- SM 収入、EB と steam の原料費、反応器年換算コスト、簡易目的関数を計算する。
 
 想定する型は次の通りである。
 
 ```python
-@dataclass(frozen=True)
-class SimpleEconomicConfig:
-    operating_hours_per_year: float
-    styrene_price_yen_per_kg: float
-    ethylbenzene_price_yen_per_kg: float
-    steam_price_yen_per_kg: float
-    reactor_base_cost_yen: float
-    reactor_reference_volume_m3: float
-    reactor_cost_exponent: float
-    capital_recovery_factor_per_year: float
-
-
 @dataclass(frozen=True)
 class SimpleProfitBreakdown:
     revenue_yen_per_year: float
@@ -175,14 +163,13 @@ class SimpleProfitBreakdown:
     objective_yen_per_year: float
 ```
 
-`src/process_sim/optimization/economics/simple_profit.py`
+反応器コスト式は `docs/cost.md` の次式を使う。
 
-- styrene 収入を計算する。
-- EB と steam の原料費を計算する。
-- 反応器装置コストを年換算する。
-- 計算式はこの module に閉じる。
+```text
+Cost [yen] = 20,000,000 * D^1.066 * H^0.82 + heat_exchanger_assumed_cost
+```
 
-初期式は次の通りである。
+今回の簡易 tuning では、反応器本体コストだけを使う。`heat_exchanger_assumed_cost` は、反応器まわりの加熱器や段間再加熱器を熱交換器扱いで足す項と考えられるが、現時点では扱いが十分に整理できていない。後で追加する場合も別項目として足せるため、初期実装には含めない。
 
 ```text
 revenue = styrene_out_kg_h * operating_hours_per_year * styrene_price
@@ -190,39 +177,60 @@ feed_cost =
   eb_feed_kg_h * operating_hours_per_year * ethylbenzene_price
   + steam_feed_kg_h * operating_hours_per_year * steam_price
 reactor_capital_cost =
-  reactor_base_cost * (total_catalyst_volume / reactor_reference_volume) ** reactor_cost_exponent
-annualized_reactor_cost = reactor_capital_cost * capital_recovery_factor
+  sum(20,000,000 * D_i^1.066 * H^0.82 for each reactor stage)
+annualized_reactor_cost = reactor_capital_cost / 7
 ```
 
-`src/process_sim/optimization/objective/radial_simple_profit.py`
+`src/process_sim/optimization/runner/radial_simple_optuna.py`
 
 - Optuna trial から radial 反応器候補を作る。
 - `RadialReactorCase` に変換する。
 - `StagedAdiabaticRadialFlowModel` を実行する。
-- 制約違反または計算失敗時は trial を失敗扱いにする。
-- `SimpleProfitBreakdown` を返す。
-
-`src/process_sim/optimization/runner/optuna_runner.py`
-
 - Optuna study を作成する。
-- AutoSampler を使う。
-- trial 数、seed、経済条件ファイル、出力 JSON の引数を読む。
+- `from optuna.samplers import TPESampler` で TPE sampler を使う。
+- trial 数、seed、探索範囲はファイル冒頭の定数として直接編集する。
 - best trial と主要内訳だけを標準出力に出す。
 
 ## 探索変数
 
 初期版の探索変数は次の通りにする。
 
-| 項目 | 扱い |
-|---|---|
-| 段数 | 2 または 3 |
-| 各段入口温度 | 既存 `optimization/reactor/parameters.py` の範囲を使う |
-| 反応器列入口圧力 | 既存 `optimization/reactor/parameters.py` の範囲を使う |
-| Steam/EB 比 | 既存 `optimization/reactor/parameters.py` の範囲を使う |
-| 各段触媒層厚み | radial 用に新規追加する |
-| 入口空塔速度 | `2.0 m/s` 固定 |
+| 項目 | 範囲または値 | 扱い |
+|---|---:|---|
+| 段数 | 2 または 3 | categorical |
+| 各段入口温度 | 590 から 650 degC | 各段独立 |
+| 反応器列入口圧力 | 50 から 200 kPa abs | `docs/reports/20260518_01_radial-flow-reactor-design.md` の radial 設計範囲 |
+| Steam/EB 比 | 5 から 11 | 文献側の条件を含める radial 設計範囲 |
+| 各段触媒層厚み | 0.3 から 1.2 m | 各段独立 |
+| 入口空塔速度 | 2.0 m/s | 固定値 |
 
 空塔速度は探索変数にしない。今回の主目的が「空塔速度 2.0 m/s に合わせて内径を調整すること」であるため、ここを同時に探索すると設計意図が曖昧になる。
+
+反応器列入口圧力は、既存 `docs/optimization.md` の旧範囲 `10.1 から 152.0 kPa abs` ではなく、radial 詳細設計で整理済みの `50 から 200 kPa abs` を使う。3段構成では段間再加熱器圧損が合計 `40 kPa` 加わるため、`150 kPa abs` 上限では探索範囲が狭くなる。
+
+### 段数ごとの study 分割
+
+2段と3段は探索次元が異なるため、同一 study には混ぜない。`N=2` の第2段入口温度と、`N=3` の第2段入口温度は、後段の有無が違うため同じ意味にはならない。
+
+runner では 2段用 study と 3段用 study を別々に作る。
+
+```text
+study_radial_2stage
+  stage_1_temperature_c
+  stage_2_temperature_c
+  stage_1_bed_thickness_m
+  stage_2_bed_thickness_m
+
+study_radial_3stage
+  stage_1_temperature_c
+  stage_2_temperature_c
+  stage_3_temperature_c
+  stage_1_bed_thickness_m
+  stage_2_bed_thickness_m
+  stage_3_bed_thickness_m
+```
+
+入口圧力と Steam/EB 比は、それぞれの study 内で同じ範囲から探索する。最終比較では、2段 study の best trial と 3段 study の best trial を同じ objective 値で比較する。
 
 ## 制約処理
 
@@ -235,29 +243,26 @@ annualized_reactor_cost = reactor_capital_cost * capital_recovery_factor
 - `outlet_pressure_ok` が `False` である。
 - styrene 生成量が正でない。
 
-Optuna 側で `TrialPruned` にするか、明示的に大きな負の値を返すかは実装前に決める。初期設計としては、失敗理由を残しやすい `TrialPruned` を候補とする。
+制約違反や計算失敗は `optuna.TrialPruned` にする。ペナルティ関数は初期実装では作らない。
 
-## CLI
+## 実行方法
 
-CLI 名は未確定である。実装前に確認する。
-
-候補は次のどちらかである。
+毎回 CLI 引数を付ける構成にはしない。探索条件は `src/process_sim/optimization/runner/radial_simple_optuna.py` の冒頭定数を直接編集する。
 
 ```text
-tune-simple-profit
-tune-radial-simple-profit
+N_TRIALS = 30
+SEED = 42
+STUDY_CONFIGS = (
+    ("radial_2stage_simple_profit", TWO_STAGE_RADIAL_REACTOR_PARAMETER_CONFIG),
+    ("radial_3stage_simple_profit", THREE_STAGE_RADIAL_REACTOR_PARAMETER_CONFIG),
+)
 ```
 
-引数候補は次の通りである。
+実行は module を直接指定して行う。
 
-```text
---n-trials
---seed
---economic-config
---output-json
+```powershell
+uv run python -m process_sim.optimization.runner.radial_simple_optuna
 ```
-
-`--economic-config` を必須にするか、未設定時にリポジトリ内の既定値を使うかは未確定である。価格と装置費係数を勝手に固定しないため、必須にする方が安全である。
 
 ## README と docs 更新
 
@@ -274,13 +279,9 @@ docs/optimization.md
 
 ## 採用しない案
 
-### HYSYS 分離系を目的関数に含める
+### 価格を新しい設定ファイルで二重管理する
 
-採用しない。今回の簡易 tuning は原料費、収入、反応器装置コストだけを扱うためである。HYSYS を含めると、分離条件、収束、recycle、HYSYS 実行失敗の扱いを先に決める必要がある。
-
-### 価格と装置費係数をコードに直書きする
-
-採用しない。現時点で根拠が未確認であり、AGENTS.md の「勝手に仮定して進めない」に反するためである。
+採用しない。価格は `docs/cost.md` と `src/process_sim/plant/economics.py` に既に整理されているため、別 JSON や別 dataclass で重複管理しない。
 
 ### 空塔速度も探索変数にする
 
@@ -288,11 +289,4 @@ docs/optimization.md
 
 ## 未確定要素
 
-- 経済評価に使う styrene、EB、steam の価格。
-- 年間運転時間。
-- 反応器装置コストの相関式、基準コスト、指数、年換算係数。
-- Optuna AutoSampler をどの import 経路で使うか。
-- CLI 名。
-- 経済条件ファイルを必須にするかどうか。
-- 失敗 trial を `TrialPruned` にするか、ペナルティ値にするか。
-
+現時点ではなし。HYSYS 分離系を目的関数へ接続する段階で、別途 runner と目的関数を設計する。

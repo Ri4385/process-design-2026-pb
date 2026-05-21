@@ -56,6 +56,7 @@
 - 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できる。
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
 - production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
+- radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
 - HYSYS ケースの調査用スクリプトは `scripts/` にある。
 - 分離機は HYSYS ケース側で構築中であり、Python 側にはまだ分離機専用モジュールはない。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
@@ -137,6 +138,8 @@ src/process_sim/
     reactor/
       parameters.py                   # 反応器パラメータ範囲と候補条件
       constraints.py                  # 反応器制約
+    runner/
+      radial_simple_optuna.py         # radial 反応器の簡易利益 Optuna runner
   separator/
     hysys_io.py                       # HYSYS分離系I/O
   plant/
@@ -270,6 +273,14 @@ uv run run-plant-convergence
 この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
 
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
+
+radial 反応器の簡易利益 tuning は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.radial_simple_optuna
+```
+
+探索条件は `src/process_sim/optimization/runner/radial_simple_optuna.py` の冒頭定数を直接編集する。2段と3段は別 study として実行し、各 trial の候補条件、制約結果、簡易利益内訳を logging に出す。各 trial の反応器詳細ログは標準出力に出す。
 
 
 ## 主要文書

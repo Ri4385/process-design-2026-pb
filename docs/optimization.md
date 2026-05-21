@@ -3,8 +3,8 @@
 ## 目的
 
 この文書は、最適化まわりの恒久的な設計メモとして使う。
-現時点では、反応器最適化に必要な探索範囲、候補条件、制約値の表現を定義する。
-Optuna 実行、目的関数、分離器最適化、ヒートインテグレーション、経済評価はまだ実装対象外である。
+現時点では、反応器最適化に必要な探索範囲、候補条件、制約値、radial 反応器の簡易 Optuna tuning を定義する。
+分離器最適化、ヒートインテグレーション、HYSYS 接続後の経済評価はまだ実装対象外である。
 
 ## 現在の実装範囲
 
@@ -18,6 +18,8 @@ src/process_sim/optimization/
   reactor/
     parameters.py    # 反応器パラメータ範囲と候補条件
     constraints.py   # 反応器制約
+  runner/
+    radial_simple_optuna.py  # radial 反応器の簡易利益 Optuna runner
 ```
 
 - `src/process_sim/optimization/models.py`
@@ -29,6 +31,10 @@ src/process_sim/optimization/
   - 2段用と3段用の初期探索空間を `TWO_STAGE_REACTOR_PARAMETER_CONFIG` と `THREE_STAGE_REACTOR_PARAMETER_CONFIG` として置く。
 - `src/process_sim/optimization/reactor/constraints.py`
   - 反応器候補に対する物理・設計上の制約値 `ReactorOptimizationConstraints` を置く。
+- `src/process_sim/optimization/runner/radial_simple_optuna.py`
+  - 2段 radial study と 3段 radial study を別々に実行する。
+  - `from optuna.samplers import TPESampler` を使う。
+  - 各 trial の候補条件、制約結果、簡易利益内訳を logging へ出す。
 
 ## コード記述ルール
 
@@ -138,6 +144,41 @@ EB 入口流量は `ReactorCandidate` に含めない。
 
 この2つは、2段と3段で探索変数の数が異なることを明示するためのものである。
 2つの study を必ず並列実行するという意味ではない。
+
+## ラジアル反応器の簡易 Optuna tuning
+
+radial 反応器では、PFR 用の段長ではなく、触媒層厚みを探索変数にする。
+
+初期探索範囲は次の通りである。
+
+| 項目 | 初期範囲 | 内部単位 | 備考 |
+|---|---:|---|---|
+| 各段入口温度 | 590 から 650 | degC | 各段独立に探索する。 |
+| 反応器入口圧力 | 50 から 200 | kPa abs | 段間再加熱器圧損を見込む。 |
+| Steam/EB 比 | 5 から 11 | mol/mol | 文献側の条件を含める。 |
+| 段数 | 2 または 3 | - | 2段 study と3段 study を別々に作る。 |
+| 各段触媒層厚み | 0.3 から 1.2 | m | 各段独立に探索する。 |
+| 入口空塔速度 | 2.0 | m/s | 探索変数にせず固定値とする。 |
+
+2段と3段は探索次元が異なるため、同一 study には混ぜない。`N=2` の第2段入口温度と、`N=3` の第2段入口温度は後段の有無が違うため同じ意味にならない。したがって、2段用と3段用の best trial を最後に同じ目的関数値で比較する。
+
+目的関数は次である。
+
+```text
+objective = styrene revenue - EB and steam feed cost - annualized reactor body cost
+```
+
+価格は `docs/cost.md` と `src/process_sim/plant/economics.py` に記録済みの値を使う。年間稼働時間は `src/process_sim/plant/const.py` の `HOURS_PER_YEAR = 8000.0` を使う。反応器本体費は `docs/cost.md` の反応器式を使い、熱交換器と仮定したコストは初期実装では含めない。
+
+制約違反や計算失敗は `optuna.TrialPruned` とする。ペナルティ関数は初期実装では作らない。
+
+各 trial の反応器詳細ログは、既存のラジアル反応器レポート形式で標準出力に出す。これは Optuna の内部ログではなく、反応器計算の値を確認するための出力である。
+
+実行時は、`src/process_sim/optimization/runner/radial_simple_optuna.py` の冒頭定数を直接編集し、次で実行する。
+
+```powershell
+uv run python -m process_sim.optimization.runner.radial_simple_optuna
+```
 
 ## 反応器制約
 
