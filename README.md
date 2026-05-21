@@ -278,7 +278,7 @@ uv run fast-production-target
 uv run run-plant-convergence
 ```
 
-この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
+この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は3回目以降に、EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
 
 HYSYS case を開いたまま production target から recycle convergence まで連続実行する場合は、以下を使う。
 

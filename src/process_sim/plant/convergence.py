@@ -37,6 +37,7 @@ from process_sim.reactor.core.stream import ReactorFeed
 
 
 logger = logging.getLogger(__name__)
+DEFAULT_PLANT_CONVERGENCE_MIN_ITERATIONS = 3  # recycle convergence の最小 iteration 数
 
 
 @dataclass(frozen=True)
@@ -136,10 +137,11 @@ def run_plant_convergence(
         if iteration_index > 1:
             eb_error = output_eb_recycle - input_eb_recycle.eb
             h2o_error = output_h2o_recycle - input_h2o_recycle.steam
-            converged = is_recycle_converged(
-                eb_recycle_error_kmol_h=eb_error,
-                h2o_recycle_error_kmol_h=h2o_error,
-            )
+            if iteration_index >= DEFAULT_PLANT_CONVERGENCE_MIN_ITERATIONS:
+                converged = is_recycle_converged(
+                    eb_recycle_error_kmol_h=eb_error,
+                    h2o_recycle_error_kmol_h=h2o_error,
+                )
 
         iteration = PlantConvergenceIteration(
             iteration_index=iteration_index,

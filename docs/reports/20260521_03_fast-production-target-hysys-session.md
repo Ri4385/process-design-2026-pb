@@ -220,6 +220,8 @@ with OpenHysysPlantRunner(case_path=args.case_path, hysys_visible=False, reactor
 
 `fast-plant-convergence` では、production target と convergence に同じ `OpenHysysPlantRunner` を渡す。したがって、production target 後に convergence 用として HYSYS case を開き直さない。
 
+plant convergence は、`DEFAULT_PLANT_CONVERGENCE_MIN_ITERATIONS = 3` により、3回目以降でのみ recycle 自己一致による収束判定を有効にする。2回目で recycle 誤差が許容内に入っても、そこで停止しない。
+
 確認は以下のみ実施した。HYSYS case の実行確認はしていない。
 
 - `uv run pyright`
