@@ -12,7 +12,7 @@ ALLOWED_REACTOR_STAGE_COUNTS: frozenset[int] = frozenset({2, 3})
 
 # 各段の反応器入口温度範囲。
 INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C = ParameterRange(
-    lower=590.0,
+    lower=550.0,
     upper=650.0,
 )
 

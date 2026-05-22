@@ -134,7 +134,7 @@ class StagedAdiabaticPfrModel:
             carbon_balance_error_fraction=carbon_error,
             hydrogen_balance_error_fraction=hydrogen_error,
             atom_balance_ok=carbon_error < 1e-8 and hydrogen_error < 1e-8,
-            outlet_pressure_ok=outlet_state.pressure_kpa >= 30.0,
+            outlet_pressure_ok=outlet_state.pressure_kpa >= 50.0,
             pressure_positive_ok=all(log.pressure_positive_ok is not False for log in stage_logs)
             and all(interstage_pressure_positive_values),
             ergun_range_ok=max_re < 500.0,

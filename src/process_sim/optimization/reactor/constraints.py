@@ -25,7 +25,7 @@ INITIAL_REACTOR_OPTIMIZATION_CONSTRAINTS = ReactorOptimizationConstraints(
 
 # ラジアル反応器の簡易 tuning で使う制約値。
 RADIAL_REACTOR_OPTIMIZATION_CONSTRAINTS = ReactorOptimizationConstraints(
-    min_outlet_pressure_kpa_abs=30.0,
+    min_outlet_pressure_kpa_abs=50.0,
     pressure_drop_kpa_per_reactor=20.0,
     min_steam_to_eb_ratio=5.0,
     max_stage_inlet_temperature_c=650.0,
