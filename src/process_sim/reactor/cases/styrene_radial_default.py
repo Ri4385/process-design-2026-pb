@@ -16,13 +16,17 @@ class RadialReactorCase:
     feed: ReactorFeed
     conditions: RadialReactorRunConditions
 
+# 2026-05-21 18:33:05,030 started study=radial_2stage_fast_plant_profit trial=7 s
+# tage_count=2 T=[553.44, 640.93] degC P=96.757 kPa abs S/EB=8.120 thickness=[0.533, 0.896] m
+# 2026-05-21 18:37:45,128 finished study=radial_2stage_fast_plant_profit trial=7 
+# objective=5.018587e+09 EB_conv=0.5048 SM_sel=0.9674 outlet_P=64.849 kPa stage_count=2 T=[553.44, 640.93] degC P=96.757 kPa abs S/EB=8.120 thickness=[0.533, 0.896] m
 
 DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
-    inlet_pressure_pa=112_330.0,
-    stage_inlet_temperatures_k=(273.15 + 633.34, 273.15 + 609.44, 273.15 + 640.43),
+    inlet_pressure_pa=96_757.0,
+    stage_inlet_temperatures_k=(273.15 + 553.44, 273.15 + 640.93),
     inlet_superficial_velocity_m_per_s=2.0,
     bed_height_m=5.0,
-    bed_thicknesses_m=(0.6714, 0.9497, 1.0617),
+    bed_thicknesses_m=(0.533, 0.896),
     pellet_diameter_m=0.003,
     bed_void_fraction=0.4312,
     catalyst_bulk_density_kg_m3=1422.0,
