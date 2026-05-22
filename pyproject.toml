@@ -9,6 +9,7 @@ description = "Process design workspace for EB to styrene project"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "japanize-matplotlib>=1.1.3",
     "matplotlib>=3.10.9",
     "optuna>=4.8.0",
     "pywin32>=311",
