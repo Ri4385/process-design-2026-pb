@@ -7,6 +7,8 @@ import math
 
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
 from process_sim.plant.const import HOURS_PER_YEAR
+from process_sim.plant.feed import FreshFeed, FreshFeedPolicy
+from process_sim.plant.models import PlantRunRecord
 from process_sim.reactor.core.models import ReactorResult
 from process_sim.reactor.core.stream import ReactorFeed
 
@@ -36,6 +38,16 @@ class SimpleProfitBreakdown:
 
     revenue_yen_per_year: float
     feed_cost_yen_per_year: float
+    reactor_annual_cost_yen_per_year: float
+    objective_yen_per_year: float
+
+
+@dataclass(frozen=True)
+class PlantReactorEconomicBreakdown:
+    """反応器費だけを装置費に入れる plant 経済収支。"""
+
+    product_revenue_yen_per_year: float
+    fresh_feed_cost_yen_per_year: float
     reactor_annual_cost_yen_per_year: float
     objective_yen_per_year: float
 
@@ -85,6 +97,96 @@ def simple_reactor_profit_breakdown(feed: ReactorFeed, result: ReactorResult) ->
         feed_cost_yen_per_year=feed_cost_yen_per_year,
         reactor_annual_cost_yen_per_year=reactor_annual_cost_yen_per_year,
         objective_yen_per_year=objective_yen_per_year,
+    )
+
+
+def plant_reactor_economic_breakdown(
+    plant_record: PlantRunRecord,
+    steady_fresh_feed: FreshFeed,
+    reactor_result: ReactorResult,
+    fresh_feed_policy: FreshFeedPolicy = FreshFeedPolicy(),
+) -> PlantReactorEconomicBreakdown:
+    """Plant product 収入、fresh 原料費、反応器年換算費から目的関数を計算する。"""
+    product_revenue_yen_per_year = (
+        plant_stream_component_value_yen_per_year(
+            plant_record=plant_record,
+            stream_name="sm_product",
+            component_name="Styrene",
+            component_id="styrene",
+            price_yen_per_kg=PRODUCT_PRICE_YEN_PER_KG["styrene"],
+        )
+        + plant_stream_component_value_yen_per_year(
+            plant_record=plant_record,
+            stream_name="bz_product",
+            component_name="Benzene",
+            component_id="benzene",
+            price_yen_per_kg=PRODUCT_PRICE_YEN_PER_KG["benzene"],
+        )
+        + plant_stream_component_value_yen_per_year(
+            plant_record=plant_record,
+            stream_name="tl_product",
+            component_name="Toluene",
+            component_id="toluene",
+            price_yen_per_kg=PRODUCT_PRICE_YEN_PER_KG["toluene"],
+        )
+    )
+    fresh_eb_kmol_h = steady_fresh_feed.hydrocarbon_kmol_h * fresh_feed_policy.eb_mol_fraction
+    fresh_feed_cost_yen_per_year = component_value_yen_per_year(
+        component_id="eb",
+        flow_kmol_h=fresh_eb_kmol_h,
+        price_yen_per_kg=FEED_PRICE_YEN_PER_KG["eb"],
+    ) + component_value_yen_per_year(
+        component_id="steam",
+        flow_kmol_h=steady_fresh_feed.steam_kmol_h,
+        price_yen_per_kg=FEED_PRICE_YEN_PER_KG["steam"],
+    )
+    reactor_annual_cost_yen_per_year = annualized_reactor_cost_yen_per_year(
+        radial_reactor_capital_cost_yen(reactor_result)
+    )
+    objective_yen_per_year = (
+        product_revenue_yen_per_year
+        - fresh_feed_cost_yen_per_year
+        - reactor_annual_cost_yen_per_year
+    )
+    return PlantReactorEconomicBreakdown(
+        product_revenue_yen_per_year=product_revenue_yen_per_year,
+        fresh_feed_cost_yen_per_year=fresh_feed_cost_yen_per_year,
+        reactor_annual_cost_yen_per_year=reactor_annual_cost_yen_per_year,
+        objective_yen_per_year=objective_yen_per_year,
+    )
+
+
+def plant_stream_component_value_yen_per_year(
+    plant_record: PlantRunRecord,
+    stream_name: str,
+    component_name: str,
+    component_id: str,
+    price_yen_per_kg: float,
+) -> float:
+    """Plant stream の指定成分流量から年間価値を計算する。"""
+    stream = plant_record.streams.get(stream_name)
+    if stream is None:
+        raise ValueError(f"{stream_name} stream is missing")
+    flow_kmol_h = stream.component_molar_flow_kmol_h.get(component_name)
+    if flow_kmol_h is None:
+        raise ValueError(f"{stream_name} {component_name} flow is missing")
+    return component_value_yen_per_year(
+        component_id=component_id,
+        flow_kmol_h=flow_kmol_h,
+        price_yen_per_kg=price_yen_per_kg,
+    )
+
+
+def format_plant_reactor_economic_breakdown(breakdown: PlantReactorEconomicBreakdown) -> str:
+    """Plant reactor economic breakdown をログ用に整形する。"""
+    return "\n".join(
+        [
+            "[Plant Reactor Economic Breakdown]",
+            f"product revenue       : {breakdown.product_revenue_yen_per_year:.6e} yen/year",
+            f"fresh feed cost       : {breakdown.fresh_feed_cost_yen_per_year:.6e} yen/year",
+            f"reactor annual cost   : {breakdown.reactor_annual_cost_yen_per_year:.6e} yen/year",
+            f"objective             : {breakdown.objective_yen_per_year:.6e} yen/year",
+        ]
     )
 
 
