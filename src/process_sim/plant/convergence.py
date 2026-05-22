@@ -193,19 +193,22 @@ def run_production_target_convergence(
     production_target_runner: PlantRunner | None = None,
     convergence_runner: PlantRunner | None = None,
     reactor_model: ReactorModelName = "radial",
+    base_reactor_case: ReactorCaseLike | None = None,
+    feed_tuning_options: FeedTuningOptions | None = None,
 ) -> PlantConvergenceResult:
     """Production target で feed 条件を決めてから recycle convergence を実行する。"""
-    base_reactor_case = default_reactor_case_for_model(reactor_model)
+    selected_base_reactor_case = base_reactor_case or default_reactor_case_for_model(reactor_model)
+    selected_feed_tuning_options = feed_tuning_options or FeedTuningOptions()
     tuning_result = tune_fresh_feed_fast(
-        options=FeedTuningOptions(target_sm_kmol_h=target_sm_kmol_h),
-        base_reactor_case=base_reactor_case,
+        options=replace(selected_feed_tuning_options, target_sm_kmol_h=target_sm_kmol_h),
+        base_reactor_case=selected_base_reactor_case,
         plant_runner=production_target_runner,
         reactor_model=reactor_model,
     )
     feed_plan = feed_plan_from_feed_tuning_result(tuning_result)
     return run_plant_convergence(
         feed_plan=feed_plan,
-        base_reactor_case=base_reactor_case,
+        base_reactor_case=selected_base_reactor_case,
         plant_runner=convergence_runner,
         reactor_model=reactor_model,
     )
