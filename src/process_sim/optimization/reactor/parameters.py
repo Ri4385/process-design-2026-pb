@@ -45,7 +45,7 @@ INITIAL_RADIAL_BED_THICKNESS_RANGE_M = ParameterRange(
 # ラジアル反応器列入口圧力範囲。
 # 段間再加熱器圧損を見込み、50 から 200 kPa abs とする。
 INITIAL_RADIAL_INLET_PRESSURE_RANGE_KPA_ABS = ParameterRange(
-    lower=50.0,
+    lower=90.0,
     upper=200.0,
 )
 

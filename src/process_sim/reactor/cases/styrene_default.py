@@ -18,7 +18,7 @@ class ReactorCase:
 
 DEFAULT_STYRENE_FEED = ReactorFeed(
     eb=395.707,
-    steam=395.707 * 8.12,
+    steam=395.707 * 6.86,
     styrene=0.495,
     hydrogen=0.025,
     benzene=1.393,
