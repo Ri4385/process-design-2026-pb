@@ -205,6 +205,32 @@ def cooling_utility_cost_yen_per_year(
     return abs(duty_kw) * 3.6 * hours_per_year * refrigerant_yen_per_mj
 
 
+def cooling_water_cost_yen_per_year(
+    duty_kw: float,
+    cp_water_kj_kg_k: float,
+    cooling_water_delta_t_k: float,
+    cooling_water_yen_per_ton: float,
+    hours_per_year: float,
+) -> float:
+    """冷却 duty から年間冷却水費を計算する。"""
+    if cp_water_kj_kg_k <= 0.0:
+        raise ValueError("cp_water_kj_kg_k must be positive")
+    if cooling_water_delta_t_k <= 0.0:
+        raise ValueError("cooling_water_delta_t_k must be positive")
+    cooling_water_kg_s = abs(duty_kw) / (cp_water_kj_kg_k * cooling_water_delta_t_k)
+    cooling_water_ton_h = cooling_water_kg_s * 3.6
+    return cooling_water_ton_h * cooling_water_yen_per_ton * hours_per_year
+
+
+def steam_heating_cost_yen_per_year(
+    duty_kw: float,
+    steam_yen_per_mj: float,
+    hours_per_year: float,
+) -> float:
+    """加熱 duty から年間スチーム費を計算する。"""
+    return abs(duty_kw) * 3.6 * hours_per_year * steam_yen_per_mj
+
+
 def component_loss_cost_yen_per_year(
     component_flow_kmol_h: dict[str, float],
     price_yen_per_kg: dict[str, float],

@@ -10,15 +10,18 @@ from typing import Any
 import japanize_matplotlib  # noqa: F401
 import matplotlib.pyplot as plt
 
+from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
 from process_sim.plant.const import HOURS_PER_YEAR, HYSYS_INVALID_SENTINEL
 from process_sim.plant.economics import (
     VALUABLE_COMPONENT_PRICE_YEN_PER_KG,
     component_loss_cost_yen_per_year,
     cooling_utility_cost_yen_per_year,
+    cooling_water_cost_yen_per_year,
     cooler_capital_cost_yen,
     decanter_capital_cost_yen,
     heat_exchanger_area_m2,
     log_mean_temperature_difference_k,
+    steam_heating_cost_yen_per_year,
 )
 from process_sim.separator.hysys_io import (
     component_value_map,
@@ -37,20 +40,30 @@ from process_sim.separator.hysys_io import (
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CASE_PATH = SCRIPT_DIR / "hysys" / "decanter_0521v1.hsc"
+CASE_PATH = SCRIPT_DIR / "hysys" / "decanter1_0524v1.hsc"
 MEDIA_DIR = SCRIPT_DIR / "media"
 
-T_DEC_LIST_C = tuple(float(value) for value in range(15, 79, 5))
+T_DEC_LIST_C = tuple(float(value) for value in range(15, 66, 5))
+# T_DEC_LIST_C = tuple(float(value) for value in range(15, 50, 5))
 DETAIL_T_DEC_LIST_C = (15.0, 75.0)
 REACTOR_OUTLET_PRESSURE_KPA: float | None = None
 TOWER1_PRESSURE_KPA = 10.0
 MAX_TOWER1_FEED_VAPOR_FRAC = 0.05
 VERBOSE = True
 
-# 表 C.1 の「液 - ガス(凝縮)」を採用する。
-COOLER_U_KJ_M2_K_H = 3600.0
-COOLANT_TEMPERATURE_C = 0.0
+HOT_SIDE_EVALUATION_START_C = 80.0
+COOLING_WATER_PROCESS_LIMIT_C = 50.0
+COOLING_WATER_INLET_C = 30.0
+COOLING_WATER_OUTLET_C = 40.0
+REFRIGERANT_TEMPERATURE_C = 0.0
+COOLING_WATER_U_KJ_M2_K_H = 3600.0
+PROPYLENE_REFRIGERANT_U_KJ_M2_K_H = 5400.0
 PROPYLENE_REFRIGERANT_YEN_PER_MJ = 0.8
+COOLING_WATER_YEN_PER_TON = 10.0
+STEAM_YEN_PER_MJ = 1.0
+WATER_CP_KJ_KG_K = 4.184
+REHEATER_U_KJ_M2_K_H = 3600.0
+STEAM_TEMPERATURE_C = 130.0
 
 DEPRECIATION_YEARS = 7.0
 
@@ -74,6 +87,8 @@ YEN_PER_OKU_YEN = 1.0e8
 
 VALUABLE_COMPONENT_IDS = ("eb", "styrene", "benzene", "toluene")
 HYSYS_COMPONENT_TO_COMPONENT_ID = {
+    "methane": "methane",
+    "ethylene": "ethylene",
     "ebenzene": "eb",
     "ethylbenzene": "eb",
     "eb": "eb",
@@ -83,6 +98,15 @@ HYSYS_COMPONENT_TO_COMPONENT_ID = {
     "bz": "benzene",
     "toluene": "toluene",
     "tl": "toluene",
+    "co2": "co2",
+    "carbondioxide": "co2",
+    "co": "co",
+    "carbonmonoxide": "co",
+    "h2o": "steam",
+    "water": "steam",
+    "steam": "steam",
+    "hydrogen": "hydrogen",
+    "h2": "hydrogen",
 }
 
 
@@ -101,8 +125,10 @@ class DecanterSweepResult:
     decanter_volume_m3: float | None
     tower1_feed_vapor_fraction: float | None
     offgas_loss_yen_per_year: float | None
-    cooling_utility_cost_yen_per_year: float | None
-    cooler_annual_cost_yen_per_year: float | None
+    cooling_water_cost_yen_per_year: float | None
+    refrigerant_cost_yen_per_year: float | None
+    reheat_steam_cost_yen_per_year: float | None
+    heat_exchanger_annual_cost_yen_per_year: float | None
     decanter_annual_cost_yen_per_year: float | None
     total_cost_yen_per_year: float | None
     offgas_component_flow_kmol_h: dict[str, float]
@@ -210,28 +236,100 @@ def decanter_geometry_from_spreadsheet(spreadsheet: Any) -> tuple[float, float, 
     return diameter_m, height_m, volume_m3
 
 
-def cooler_area_from_lmtd_m2(cooler: Any) -> float:
-    """C-1 の duty と LMTD 仮定から冷却器面積を推算する。"""
-    duty_kw = required_number(get_quantity(cooler, "Duty", ("kW", "kJ/h")), "C-1 Duty")
-    hot_inlet_c = required_number(get_quantity(cooler, "FeedTemperature", ("C", "degC")), "C-1 FeedTemperature")
-    hot_outlet_c = required_number(get_quantity(cooler, "ProductTemperature", ("C", "degC")), "C-1 ProductTemperature")
+def set_cooler_product_temperature(cooler: Any, simulation_case: Any, temperature_c: float) -> float:
+    """C-1 の出口温度を設定して duty を読む。"""
+    set_quantity(cooler, "ProductTemperature", temperature_c, ("C", "degC"))
+    wait_for_hysys_calculation(simulation_case)
+    return required_number(get_quantity(cooler, "Duty", ("kW", "kJ/h")), "C-1 Duty")
+
+
+def positive_section_duty_kw(duty_end_kw: float, duty_start_kw: float) -> float:
+    """2つの累積 duty から区間 duty の正値を返す。"""
+    return abs(duty_end_kw - duty_start_kw)
+
+
+def cooler_area_for_section_m2(
+    duty_kw: float,
+    hot_inlet_c: float,
+    hot_outlet_c: float,
+    cold_inlet_c: float,
+    cold_outlet_c: float,
+    overall_heat_transfer_kj_m2_k_h: float,
+) -> float:
+    """区間 duty から冷却器面積を計算する。"""
+    if duty_kw <= 0.0 or math.isclose(duty_kw, 0.0):
+        return 0.0
     delta_t_lm_k = log_mean_temperature_difference_k(
         hot_inlet_c=hot_inlet_c,
         hot_outlet_c=hot_outlet_c,
-        cold_inlet_c=COOLANT_TEMPERATURE_C,
-        cold_outlet_c=COOLANT_TEMPERATURE_C,
+        cold_inlet_c=cold_inlet_c,
+        cold_outlet_c=cold_outlet_c,
     )
     return heat_exchanger_area_m2(
         duty_kw=duty_kw,
-        overall_heat_transfer_kj_m2_k_h=COOLER_U_KJ_M2_K_H,
+        overall_heat_transfer_kj_m2_k_h=overall_heat_transfer_kj_m2_k_h,
         delta_t_lm_k=delta_t_lm_k,
     )
+
+
+def stream_mass_flow_kg_h(stream: Any, flowsheet: Any, stream_name: str) -> float:
+    """stream の質量流量を kg/h で読む。"""
+    mass_flow_kg_h = get_quantity(stream, "MassFlow", ("kg/h",))
+    if is_valid_number(mass_flow_kg_h):
+        return float(mass_flow_kg_h)
+
+    component_flow = component_flows_by_id(stream, flowsheet)
+    mass_flow_from_components = 0.0
+    for component_id, flow_kmol_h in component_flow.items():
+        property_value = SPECIES_PHYSICAL_PROPERTIES.get(component_id)
+        if property_value is None:
+            continue
+        mass_flow_from_components += flow_kmol_h * property_value.molecular_weight
+    if mass_flow_from_components > 0.0:
+        return mass_flow_from_components
+    raise RuntimeError(f"{stream_name} MassFlow を取得できませんでした")
+
+
+def stream_temperature_c(stream: Any, stream_name: str) -> float:
+    """stream 温度を ℃ で読む。"""
+    return required_number(get_quantity(stream, "Temperature", ("C", "degC")), f"{stream_name} Temperature")
+
+
+def water_reheat_duty_kw(water_stream: Any, flowsheet: Any) -> float:
+    """水相を80 ℃まで再加熱する duty を計算する。"""
+    mass_flow_kg_h = stream_mass_flow_kg_h(water_stream, flowsheet, STREAM_WATER_RECYCLE)
+    temperature_c = stream_temperature_c(water_stream, STREAM_WATER_RECYCLE)
+    duty_kj_h = mass_flow_kg_h * WATER_CP_KJ_KG_K * max(HOT_SIDE_EVALUATION_START_C - temperature_c, 0.0)
+    return duty_kj_h / 3600.0
+
+
+def reheater_area_m2(duty_kw: float, water_inlet_c: float) -> float:
+    """水相再加熱器の伝熱面積を計算する。"""
+    if duty_kw <= 0.0 or math.isclose(duty_kw, 0.0):
+        return 0.0
+    if water_inlet_c >= HOT_SIDE_EVALUATION_START_C:
+        return 0.0
+    return cooler_area_for_section_m2(
+        duty_kw=duty_kw,
+        hot_inlet_c=STEAM_TEMPERATURE_C,
+        hot_outlet_c=STEAM_TEMPERATURE_C,
+        cold_inlet_c=water_inlet_c,
+        cold_outlet_c=HOT_SIDE_EVALUATION_START_C,
+        overall_heat_transfer_kj_m2_k_h=REHEATER_U_KJ_M2_K_H,
+    )
+
+
+def annualized_heat_exchanger_cost_yen_per_year(areas_m2: list[float]) -> float:
+    """熱交換器面積群から年換算費を計算する。"""
+    capital_cost_yen = sum(cooler_capital_cost_yen(area_m2) for area_m2 in areas_m2 if area_m2 > 0.0)
+    return capital_cost_yen / DEPRECIATION_YEARS
 
 
 def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: float) -> DecanterSweepResult:
     """指定したデカンター入口温度で HYSYS を更新し、評価値を返す。"""
     reactor_outlet = get_material_stream(flowsheet, STREAM_REACTOR_OUTLET)
     off_gas = get_material_stream(flowsheet, STREAM_OFF_GAS)
+    water_recycle = get_material_stream(flowsheet, STREAM_WATER_RECYCLE)
     decanter_oil = get_material_stream(flowsheet, STREAM_DECANTER_OIL)
     tower1_feed = get_material_stream(flowsheet, STREAM_TOWER1_FEED)
     cooler = get_operation(flowsheet, UNIT_COOLER)
@@ -253,11 +351,24 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             f"[case] T_dec={temperature_c:.1f} C: "
             f"reactor_outlet Pressure={reactor_pressure_kpa:.3f} kPa"
         )
-        log(f"[case] T_dec={temperature_c:.1f} C: set C-1 ProductTemperature")
-        set_quantity(cooler, "ProductTemperature", temperature_c, ("C", "degC"))
         log(f"[case] T_dec={temperature_c:.1f} C: set VLV-1 ProductPressure={TOWER1_PRESSURE_KPA:.3f} kPa")
         set_quantity(valve, "ProductPressure", TOWER1_PRESSURE_KPA, ("kPa",))
-        log(f"[case] T_dec={temperature_c:.1f} C: solve")
+        log(f"[case] T_dec={temperature_c:.1f} C: calculate cooling sections")
+        duty_80_kw = set_cooler_product_temperature(cooler, simulation_case, HOT_SIDE_EVALUATION_START_C)
+        if temperature_c <= COOLING_WATER_PROCESS_LIMIT_C:
+            duty_50_kw = set_cooler_product_temperature(cooler, simulation_case, COOLING_WATER_PROCESS_LIMIT_C)
+            cooler_duty_kw = set_cooler_product_temperature(cooler, simulation_case, temperature_c)
+            cooling_water_duty_kw = positive_section_duty_kw(duty_50_kw, duty_80_kw)
+            refrigerant_duty_kw = positive_section_duty_kw(cooler_duty_kw, duty_50_kw)
+            cooling_water_hot_outlet_c = COOLING_WATER_PROCESS_LIMIT_C
+            refrigerant_hot_inlet_c = COOLING_WATER_PROCESS_LIMIT_C
+        else:
+            cooler_duty_kw = set_cooler_product_temperature(cooler, simulation_case, temperature_c)
+            cooling_water_duty_kw = positive_section_duty_kw(cooler_duty_kw, duty_80_kw)
+            refrigerant_duty_kw = 0.0
+            cooling_water_hot_outlet_c = temperature_c
+            refrigerant_hot_inlet_c = temperature_c
+        log(f"[case] T_dec={temperature_c:.1f} C: solve final state")
         wait_for_hysys_calculation(simulation_case)
 
         separator_feed = get_material_stream(flowsheet, STREAM_SEPARATOR_FEED)
@@ -270,9 +381,30 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             "tower1_feed VapourFraction",
         )
         log(f"[case] T_dec={temperature_c:.1f} C: read cost inputs")
-        cooler_duty_kw = required_number(get_quantity(cooler, "Duty", ("kW", "kJ/h")), "C-1 Duty")
-        cooler_area_m2 = cooler_area_from_lmtd_m2(cooler)
+        cooling_water_area_m2 = cooler_area_for_section_m2(
+            duty_kw=cooling_water_duty_kw,
+            hot_inlet_c=HOT_SIDE_EVALUATION_START_C,
+            hot_outlet_c=cooling_water_hot_outlet_c,
+            cold_inlet_c=COOLING_WATER_INLET_C,
+            cold_outlet_c=COOLING_WATER_OUTLET_C,
+            overall_heat_transfer_kj_m2_k_h=COOLING_WATER_U_KJ_M2_K_H,
+        )
+        refrigerant_area_m2 = cooler_area_for_section_m2(
+            duty_kw=refrigerant_duty_kw,
+            hot_inlet_c=refrigerant_hot_inlet_c,
+            hot_outlet_c=temperature_c,
+            cold_inlet_c=REFRIGERANT_TEMPERATURE_C,
+            cold_outlet_c=REFRIGERANT_TEMPERATURE_C,
+            overall_heat_transfer_kj_m2_k_h=PROPYLENE_REFRIGERANT_U_KJ_M2_K_H,
+        )
+        cooler_area_m2 = cooling_water_area_m2 + refrigerant_area_m2
         decanter_diameter_m, decanter_height_m, decanter_volume_m3 = decanter_geometry_from_spreadsheet(decanter_spreadsheet)
+        reheat_duty_kw = water_reheat_duty_kw(water_recycle, flowsheet)
+        reheat_area_m2 = reheater_area_m2(
+            duty_kw=reheat_duty_kw,
+            water_inlet_c=stream_temperature_c(water_recycle, STREAM_WATER_RECYCLE),
+        )
+        heat_exchanger_area_m2 = cooler_area_m2 + reheat_area_m2
 
         reactor_component_flow = valuable_component_subset(component_flows_by_id(reactor_outlet, flowsheet))
         offgas_component_flow = valuable_component_subset(component_flows_by_id(off_gas, flowsheet))
@@ -284,17 +416,33 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             price_yen_per_kg=VALUABLE_COMPONENT_PRICE_YEN_PER_KG,
             hours_per_year=HOURS_PER_YEAR,
         )
-        cooling_utility_yen_per_year = cooling_utility_cost_yen_per_year(
-            duty_kw=cooler_duty_kw,
+        cooling_water_yen_per_year = cooling_water_cost_yen_per_year(
+            duty_kw=cooling_water_duty_kw,
+            cp_water_kj_kg_k=WATER_CP_KJ_KG_K,
+            cooling_water_delta_t_k=COOLING_WATER_OUTLET_C - COOLING_WATER_INLET_C,
+            cooling_water_yen_per_ton=COOLING_WATER_YEN_PER_TON,
+            hours_per_year=HOURS_PER_YEAR,
+        )
+        refrigerant_yen_per_year = cooling_utility_cost_yen_per_year(
+            duty_kw=refrigerant_duty_kw,
             refrigerant_yen_per_mj=PROPYLENE_REFRIGERANT_YEN_PER_MJ,
             hours_per_year=HOURS_PER_YEAR,
         )
-        cooler_annual_cost_yen_per_year = cooler_capital_cost_yen(cooler_area_m2) / DEPRECIATION_YEARS
+        reheat_steam_yen_per_year = steam_heating_cost_yen_per_year(
+            duty_kw=reheat_duty_kw,
+            steam_yen_per_mj=STEAM_YEN_PER_MJ,
+            hours_per_year=HOURS_PER_YEAR,
+        )
+        heat_exchanger_annual_cost_yen_per_year = annualized_heat_exchanger_cost_yen_per_year(
+            [cooling_water_area_m2, refrigerant_area_m2, reheat_area_m2]
+        )
         decanter_annual_cost_yen_per_year = decanter_capital_cost_yen(decanter_volume_m3) / DEPRECIATION_YEARS
         total_cost_yen_per_year = (
             offgas_loss_yen_per_year
-            + cooling_utility_yen_per_year
-            + cooler_annual_cost_yen_per_year
+            + cooling_water_yen_per_year
+            + refrigerant_yen_per_year
+            + reheat_steam_yen_per_year
+            + heat_exchanger_annual_cost_yen_per_year
             + decanter_annual_cost_yen_per_year
         )
 
@@ -306,8 +454,10 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             f"duty={cooler_duty_kw / 1000.0:.3f} MW, "
             f"D={decanter_diameter_m:.3f} m, H={decanter_height_m:.3f} m, V={decanter_volume_m3:.3f} m3, "
             f"offgas={offgas_loss_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
-            f"cooling={cooling_utility_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
-            f"cooler={cooler_annual_cost_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
+            f"CW={cooling_water_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
+            f"ref={refrigerant_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
+            f"reheat={reheat_steam_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
+            f"heat_exchanger={heat_exchanger_annual_cost_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
             f"decanter={decanter_annual_cost_yen_per_year / YEN_PER_OKU_YEN:.4f}, "
             f"J={total_cost_yen_per_year / YEN_PER_OKU_YEN:.4f} 億円/year"
         )
@@ -317,14 +467,16 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             valid=valid,
             invalid_reason=invalid_reason,
             cooler_duty_kw=cooler_duty_kw,
-            cooler_area_m2=cooler_area_m2,
+            cooler_area_m2=heat_exchanger_area_m2,
             decanter_diameter_m=decanter_diameter_m,
             decanter_height_m=decanter_height_m,
             decanter_volume_m3=decanter_volume_m3,
             tower1_feed_vapor_fraction=tower1_feed_vapor_fraction,
             offgas_loss_yen_per_year=offgas_loss_yen_per_year,
-            cooling_utility_cost_yen_per_year=cooling_utility_yen_per_year,
-            cooler_annual_cost_yen_per_year=cooler_annual_cost_yen_per_year,
+            cooling_water_cost_yen_per_year=cooling_water_yen_per_year,
+            refrigerant_cost_yen_per_year=refrigerant_yen_per_year,
+            reheat_steam_cost_yen_per_year=reheat_steam_yen_per_year,
+            heat_exchanger_annual_cost_yen_per_year=heat_exchanger_annual_cost_yen_per_year,
             decanter_annual_cost_yen_per_year=decanter_annual_cost_yen_per_year,
             total_cost_yen_per_year=total_cost_yen_per_year,
             offgas_component_flow_kmol_h=offgas_component_flow,
@@ -346,8 +498,10 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
             decanter_volume_m3=None,
             tower1_feed_vapor_fraction=None,
             offgas_loss_yen_per_year=None,
-            cooling_utility_cost_yen_per_year=None,
-            cooler_annual_cost_yen_per_year=None,
+            cooling_water_cost_yen_per_year=None,
+            refrigerant_cost_yen_per_year=None,
+            reheat_steam_cost_yen_per_year=None,
+            heat_exchanger_annual_cost_yen_per_year=None,
             decanter_annual_cost_yen_per_year=None,
             total_cost_yen_per_year=None,
             offgas_component_flow_kmol_h={},
@@ -389,9 +543,21 @@ def write_figures(results: list[DecanterSweepResult]) -> None:
     plt.plot(temperatures, [yen_per_year_to_oku_yen_per_year(result.total_cost_yen_per_year) for result in results], marker="o", label="合計")
     plt.plot(
         temperatures,
-        [yen_per_year_to_oku_yen_per_year(result.cooling_utility_cost_yen_per_year) for result in results],
+        [yen_per_year_to_oku_yen_per_year(result.cooling_water_cost_yen_per_year) for result in results],
         marker="o",
-        label="冷却用役",
+        label="冷却水",
+    )
+    plt.plot(
+        temperatures,
+        [yen_per_year_to_oku_yen_per_year(result.refrigerant_cost_yen_per_year) for result in results],
+        marker="o",
+        label="プロピレン",
+    )
+    plt.plot(
+        temperatures,
+        [yen_per_year_to_oku_yen_per_year(result.reheat_steam_cost_yen_per_year) for result in results],
+        marker="o",
+        label="再加熱",
     )
     plt.plot(
         temperatures,
@@ -401,9 +567,9 @@ def write_figures(results: list[DecanterSweepResult]) -> None:
     )
     plt.plot(
         temperatures,
-        [yen_per_year_to_oku_yen_per_year(result.cooler_annual_cost_yen_per_year) for result in results],
+        [yen_per_year_to_oku_yen_per_year(result.heat_exchanger_annual_cost_yen_per_year) for result in results],
         marker="o",
-        label="冷却器年換算",
+        label="熱交換器年換算",
     )
     plt.plot(
         temperatures,
@@ -493,8 +659,8 @@ def print_summary(results: list[DecanterSweepResult]) -> None:
     candidates = valid_results(results)
     best = min(candidates, key=lambda result: result.total_cost_yen_per_year or math.inf) if candidates else None
     print(
-        "T_dec_C  valid  VF_tower1  duty_MW  A_cooler_m2  "
-        "D_dec_m  H_dec_m  V_dec_m3  offgas  cooling  cooler  decanter  total  reason"
+        "T_dec_C  valid  VF_tower1  duty_MW  A_hx_m2  "
+        "D_dec_m  H_dec_m  V_dec_m3  offgas  CW  ref  reheat  heat_exchanger  decanter  total  reason"
     )
     for result in results:
         duty_mw = (result.cooler_duty_kw or math.nan) / 1000.0
@@ -507,8 +673,10 @@ def print_summary(results: list[DecanterSweepResult]) -> None:
             f"{cost_value(result.decanter_height_m):7.3f}  "
             f"{cost_value(result.decanter_volume_m3):8.3f}  "
             f"{yen_per_year_to_oku_yen_per_year(result.offgas_loss_yen_per_year):7.4f}  "
-            f"{yen_per_year_to_oku_yen_per_year(result.cooling_utility_cost_yen_per_year):7.4f}  "
-            f"{yen_per_year_to_oku_yen_per_year(result.cooler_annual_cost_yen_per_year):7.4f}  "
+            f"{yen_per_year_to_oku_yen_per_year(result.cooling_water_cost_yen_per_year):7.4f}  "
+            f"{yen_per_year_to_oku_yen_per_year(result.refrigerant_cost_yen_per_year):7.4f}  "
+            f"{yen_per_year_to_oku_yen_per_year(result.reheat_steam_cost_yen_per_year):7.4f}  "
+            f"{yen_per_year_to_oku_yen_per_year(result.heat_exchanger_annual_cost_yen_per_year):7.4f}  "
             f"{yen_per_year_to_oku_yen_per_year(result.decanter_annual_cost_yen_per_year):9.4f}  "
             f"{yen_per_year_to_oku_yen_per_year(result.total_cost_yen_per_year):7.4f}  "
             f"{result.invalid_reason}"
@@ -520,13 +688,15 @@ def print_summary(results: list[DecanterSweepResult]) -> None:
         print(f"P_dec: {best.pressure_kpa:.3f} kPa")
         print(f"tower1_feed vapor fraction: {best.tower1_feed_vapor_fraction:.6f}")
         print(f"C-1 duty: {best.cooler_duty_kw:.3f} kW")
-        print(f"cooler area estimate: {best.cooler_area_m2:.3f} m2")
+        print(f"heat exchanger area estimate: {best.cooler_area_m2:.3f} m2")
         print(f"decanter diameter: {best.decanter_diameter_m:.3f} m")
         print(f"decanter height: {best.decanter_height_m:.3f} m")
         print(f"decanter volume: {best.decanter_volume_m3:.3f} m3")
         print(f"offgas loss: {yen_per_year_to_oku_yen_per_year(best.offgas_loss_yen_per_year):.4f} 億円/year")
-        print(f"cooling utility: {yen_per_year_to_oku_yen_per_year(best.cooling_utility_cost_yen_per_year):.4f} 億円/year")
-        print(f"cooler annual: {yen_per_year_to_oku_yen_per_year(best.cooler_annual_cost_yen_per_year):.4f} 億円/year")
+        print(f"cooling water: {yen_per_year_to_oku_yen_per_year(best.cooling_water_cost_yen_per_year):.4f} 億円/year")
+        print(f"refrigerant: {yen_per_year_to_oku_yen_per_year(best.refrigerant_cost_yen_per_year):.4f} 億円/year")
+        print(f"reheat steam: {yen_per_year_to_oku_yen_per_year(best.reheat_steam_cost_yen_per_year):.4f} 億円/year")
+        print(f"heat exchanger annual: {yen_per_year_to_oku_yen_per_year(best.heat_exchanger_annual_cost_yen_per_year):.4f} 億円/year")
         print(f"decanter annual: {yen_per_year_to_oku_yen_per_year(best.decanter_annual_cost_yen_per_year):.4f} 億円/year")
 
     detail_results = [
@@ -546,8 +716,10 @@ def print_summary(results: list[DecanterSweepResult]) -> None:
                 f"H={cost_value(result.decanter_height_m):.3f} m, "
                 f"V={cost_value(result.decanter_volume_m3):.3f} m3, "
                 f"offgas={yen_per_year_to_oku_yen_per_year(result.offgas_loss_yen_per_year):.4f} 億円/year, "
-                f"cooling={yen_per_year_to_oku_yen_per_year(result.cooling_utility_cost_yen_per_year):.4f} 億円/year, "
-                f"cooler={yen_per_year_to_oku_yen_per_year(result.cooler_annual_cost_yen_per_year):.4f} 億円/year, "
+                f"CW={yen_per_year_to_oku_yen_per_year(result.cooling_water_cost_yen_per_year):.4f} 億円/year, "
+                f"ref={yen_per_year_to_oku_yen_per_year(result.refrigerant_cost_yen_per_year):.4f} 億円/year, "
+                f"reheat={yen_per_year_to_oku_yen_per_year(result.reheat_steam_cost_yen_per_year):.4f} 億円/year, "
+                f"heat_exchanger={yen_per_year_to_oku_yen_per_year(result.heat_exchanger_annual_cost_yen_per_year):.4f} 億円/year, "
                 f"decanter={yen_per_year_to_oku_yen_per_year(result.decanter_annual_cost_yen_per_year):.4f} 億円/year, "
                 f"total={yen_per_year_to_oku_yen_per_year(result.total_cost_yen_per_year):.4f} 億円/year, "
                 f"reason={result.invalid_reason}"
@@ -564,7 +736,13 @@ def main() -> None:
         log("[start] reactor_outlet pressure: use case value")
     else:
         log(f"[start] reactor_outlet pressure: set {REACTOR_OUTLET_PRESSURE_KPA:.3f} kPa")
-    log(f"[assumption] U={COOLER_U_KJ_M2_K_H:.1f} kJ/(m2 K h), coolant T={COOLANT_TEMPERATURE_C:.1f} C")
+    log(
+        "[assumption] "
+        f"U_CW={COOLING_WATER_U_KJ_M2_K_H:.1f}, "
+        f"U_ref={PROPYLENE_REFRIGERANT_U_KJ_M2_K_H:.1f} kJ/(m2 K h), "
+        f"CW={COOLING_WATER_INLET_C:.1f}->{COOLING_WATER_OUTLET_C:.1f} C, "
+        f"ref={REFRIGERANT_TEMPERATURE_C:.1f} C"
+    )
     log("[start] decanter volume: use SPRDSHT-1 Cell(0, 1) diameter and Cell(0, 2) height")
     with hysys_case(CASE_PATH.resolve(), visible=False) as (_, simulation_case, _):
         flowsheet = get_flowsheet(simulation_case)

@@ -24,7 +24,7 @@ src/process_sim/reactor/
     radial_adiabatic.py              # 1基分の radial 反応器。渡された幾何で計算する。
     staged_adiabatic_radial.py       # 多段 radial 反応器。各段入口条件から各段の内半径を計算する。
 src/process_sim/plant/
-  economics.py                       # 既存価格、反応器コスト関数、簡易利益計算を置く。
+  economics.py                       # 既存価格、反応器コスト関数を置く。
   const.py                           # 年間稼働時間など既存の plant 固定値を使う。
 src/process_sim/optimization/
   reactor/
@@ -138,10 +138,10 @@ objective = revenue - feed_cost - annualized_reactor_cost
 
 ```text
 src/process_sim/plant/
-  economics.py                     # 価格、反応器コスト、簡易利益計算
+  economics.py                     # 価格、反応器コスト、年間価値計算
 src/process_sim/optimization/
   runner/
-    radial_simple_optuna.py        # ファイル冒頭の定数を編集して実行する Optuna runner
+    radial_simple_optuna.py        # ファイル冒頭の定数と専用目的関数を編集して実行する Optuna runner
 ```
 
 ### ファイル責務
@@ -150,7 +150,7 @@ src/process_sim/optimization/
 
 - 既存の `FEED_PRICE_YEN_PER_KG` と `PRODUCT_PRICE_YEN_PER_KG` を使う。
 - `docs/cost.md` の反応器コスト式を関数化する。
-- SM 収入、EB と steam の原料費、反応器年換算コスト、簡易目的関数を計算する。
+- SM 収入、EB と steam の原料費、反応器年換算コストに必要な共通関数を置く。
 
 想定する型は次の通りである。
 
@@ -174,12 +174,21 @@ Cost [yen] = 20,000,000 * D^1.066 * H^0.82 + heat_exchanger_assumed_cost
 ```text
 revenue = styrene_out_kg_h * operating_hours_per_year * styrene_price
 feed_cost =
-  eb_feed_kg_h * operating_hours_per_year * ethylbenzene_price
+  fresh_eb_kg_h * operating_hours_per_year * ethylbenzene_price
   + steam_feed_kg_h * operating_hours_per_year * steam_price
 reactor_capital_cost =
   sum(20,000,000 * D_i^1.066 * H^0.82 for each reactor stage)
 annualized_reactor_cost = reactor_capital_cost / 7
 ```
+
+2026-05-22 の修正で、`radial_simple_optuna.py` 専用の EB 原料費は反応器入口 EB 全量ではなく、未反応 EB の 99% をリサイクルできる前提で必要な fresh EB だけに変更した。計算式は次の通りである。
+
+```text
+fresh_eb = max(reactor_feed_eb - 0.99 * reactor_outlet_eb, 0)
+feed_cost = fresh_eb_cost + steam_feed_cost
+```
+
+この変更は反応器単体の簡易評価 runner に限定する。共通の `src/process_sim/plant/economics.py` には 99% recycle 前提を置かない。HYSYS を通す `radial_fast_plant_optuna.py` では、plant 側の収束計算から得た steady fresh feed を使うため、この簡易式は使わない。
 
 `src/process_sim/optimization/runner/radial_simple_optuna.py`
 
