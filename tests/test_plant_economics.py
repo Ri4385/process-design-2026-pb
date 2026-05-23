@@ -10,10 +10,12 @@ from process_sim.plant.economics import (
     VALUABLE_COMPONENT_PRICE_YEN_PER_KG,
     component_loss_cost_yen_per_year,
     cooling_utility_cost_yen_per_year,
+    cooling_water_cost_yen_per_year,
     cooler_capital_cost_yen,
     decanter_capital_cost_yen,
     heat_exchanger_area_m2,
     log_mean_temperature_difference_k,
+    steam_heating_cost_yen_per_year,
 )
 
 
@@ -24,6 +26,26 @@ def test_cooling_utility_cost_yen_per_year() -> None:
         refrigerant_yen_per_mj=0.8,
         hours_per_year=8000.0,
     ) == pytest.approx(2_304_000.0)
+
+
+def test_cooling_water_cost_yen_per_year() -> None:
+    """冷却水費を計算できる。"""
+    assert cooling_water_cost_yen_per_year(
+        duty_kw=41.84,
+        cp_water_kj_kg_k=4.184,
+        cooling_water_delta_t_k=10.0,
+        cooling_water_yen_per_ton=10.0,
+        hours_per_year=8000.0,
+    ) == pytest.approx(288_000.0)
+
+
+def test_steam_heating_cost_yen_per_year() -> None:
+    """スチーム加熱費を計算できる。"""
+    assert steam_heating_cost_yen_per_year(
+        duty_kw=100.0,
+        steam_yen_per_mj=1.0,
+        hours_per_year=8000.0,
+    ) == pytest.approx(2_880_000.0)
 
 
 def test_component_loss_cost_yen_per_year() -> None:
