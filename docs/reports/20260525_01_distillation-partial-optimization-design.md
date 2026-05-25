@@ -60,6 +60,7 @@ GridLevel = Literal["coarse", "fine"]
 
 TARGET_TOWER: TargetTower = "tower1"
 GRID_LEVEL: GridLevel = "coarse"
+DETAILED_FEED_LOG = True
 ```
 
 対象 case は次で取得する。
@@ -132,7 +133,7 @@ NetLiqVolLiquidFlowsValue: m3/h
 
 段数は HYSYS ファイルごとに固定だが、feed 段は Python から変更する。
 
-対象塔の `ColumnFlowsheet.FeedColumnStages` を読み、対象 feed の段番号を書き換える。HYSYS COM で直接書き換えられない場合は、対象 `traysection` の feed stage 関連属性や feed connection を調査して、同等の変更経路を使う。
+対象塔の `ColumnFlowsheet.FeedColumnStages` は現在段の読み取りに使う。調査結果では `FeedColumnStages` item の `StageNumberValue` は読めるが書き込み不可だったため、feed 段の変更には対象 `traysection` の `SpecifyFeedLocation(feed_object, stage)` を使う。
 
 初期実装では、塔ごとに feed が 1 本である前提で、最初の feed stage を sweep 対象にする。
 
@@ -165,7 +166,7 @@ $$
 f_N^{*} = \operatorname*{arg\,min}_f J_{N,f}
 $$
 
-ログには、各 HYSYS ファイルについて最良 feed 段だけを出す。feed 段ごとの詳細ログは出さない。
+ログには、通常は各 HYSYS ファイルについて最良 feed 段を出す。`DETAILED_FEED_LOG = True` の場合は、feed 段ごとに、段数、feed 段、塔径、高さ、L/D、塔頂温度、塔底温度、condenser duty、reboiler duty、装置コスト、用役コスト、評価関数、invalid 理由を出す。
 
 ## 塔径計算
 
@@ -627,7 +628,7 @@ scripts/distillation/media/tower3_cost_summary.png
 
 ## ログ
 
-ログは case 1 つにつき 1 回から 2 回程度に抑える。
+ログは `DETAILED_FEED_LOG = False` の場合、case 1 つにつき 1 回から 2 回程度に抑える。
 
 例は次の通りである。
 
@@ -638,12 +639,18 @@ scripts/distillation/media/tower3_cost_summary.png
 [done] tower=tower1 best_N=20 best_feed=9 best_J=1.2345 oku-yen/year figure=scripts/distillation/media/tower1_cost_summary.png
 ```
 
+`DETAILED_FEED_LOG = True` の場合は、次のような feed 段ごとの詳細ログも出す。
+
+```text
+[feed] file=tower1_a.hsc N=20 feed=9 D=2.345 H=18.400 L/D=7.846 Ttop=60.000 Tbottom=95.000 Qcond=100.000 Qreb=120.000 equipment=0.9000 utility=0.3345 J=1.2345 valid
+```
+
 HYSYS case open、solve、close などの細かいログは出さない。
 
 ## 未確定要素
 
 - tower1 の制約に使う温度は、まず C-3 入口側の `sm_outlet` または塔底製品温度を使う。
-- feed 段の書き換え経路は、まず `ColumnFlowsheet.FeedColumnStages` を試す。書き換え不可の場合は HYSYS の feed connection 側を調査する。
+- feed 段の書き換え経路は `traysection.SpecifyFeedLocation(feed_object, stage)` を使う。
 - condenser/reboiler の面積推算では、対数平均温度差を直接読むのではなく、`T_top`, `T_bottom`, duty から上記の簡略式で計算する。
 - tower2 の加熱用役費は、EB recycle を 200 ℃まで加熱する概算である。反応器入口までの正式な加熱評価は別途整理する。
 - L/D 比は警告扱いにする。評価からは除外する。

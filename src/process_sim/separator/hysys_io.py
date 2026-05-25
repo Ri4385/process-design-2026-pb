@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
+import time
 from types import TracebackType
 from typing import Any, Generator, Sequence
 
@@ -386,9 +387,16 @@ def wait_for_hysys_calculation(simulation_case: Any) -> None:
         if callable(method):
             try:
                 method()
-                return
+                break
             except Exception:
                 pass
+
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        is_solving = getattr(solver, "IsSolving", None)
+        if not isinstance(is_solving, bool) or not is_solving:
+            return
+        time.sleep(0.2)
 
 
 @contextmanager
