@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0524v5.hsc")  # 既定の HYSYS case path
+DEFAULT_HYSYS_CASE_PATH = Path("data/hysys/process_design_0525v1.hsc")  # 既定の HYSYS case path
 DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS = 120.0  # HYSYS 実行 timeout 秒
 HOURS_PER_YEAR = 8000.0  # 年間稼働時間 h/year
 
