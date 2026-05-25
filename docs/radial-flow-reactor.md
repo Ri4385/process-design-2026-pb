@@ -18,6 +18,7 @@
 
 - 各段を内側流入、外側流出の環状触媒層として扱う。
 - 流通断面積は `A_r(r) = 2πrz` とする。
+- 触媒床内半径は固定入力ではなく、各段入口空塔速度 `2.0 m/s` と各段入口体積流量から段ごとに計算する。
 - 圧力は状態変数として半径方向に積分する。
 - 圧力損失は SI 単位で整理した Ergun 式で計算する。
 - ガス密度は局所温度、局所圧力、局所組成から理想気体として計算する。
@@ -31,7 +32,7 @@
 - `RadialReactorRunConditions`
   - `inlet_pressure_pa`
   - `stage_inlet_temperatures_k`
-  - `bed_inner_radius_m`
+  - `inlet_superficial_velocity_m_per_s`
   - `bed_height_m`
   - `bed_thicknesses_m`
   - `pellet_diameter_m`

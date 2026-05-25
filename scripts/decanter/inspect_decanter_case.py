@@ -3,50 +3,78 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import importlib
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 import pythoncom
 
-from scripts.inspect_hysys_case import (
-    CaseInspection,
-    close_case,
-    connect_hysys,
-    get_flowsheet,
-    inspect_case,
-    open_case,
-    quit_hysys,
-    strip_none,
-)
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CASE_PATH = SCRIPT_DIR / "hysys" / "decanter_0520v2.hsc"
+REPO_ROOT = SCRIPT_DIR.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+_inspect_hysys_case = importlib.import_module("scripts.inspect_hysys_case")
+close_case = _inspect_hysys_case.close_case
+connect_hysys = _inspect_hysys_case.connect_hysys
+get_flowsheet = _inspect_hysys_case.get_flowsheet
+inspect_case = _inspect_hysys_case.inspect_case
+open_case = _inspect_hysys_case.open_case
+quit_hysys = _inspect_hysys_case.quit_hysys
+strip_none = _inspect_hysys_case.strip_none
+
+CASE_PATH = SCRIPT_DIR / "hysys" / "decanter_0522v1.hsc"
 OUTPUT_DIR = SCRIPT_DIR / "diagnostics"
-FULL_OUTPUT_JSON = OUTPUT_DIR / "decanter_0520v2_inspection.json"
-FOCUSED_OUTPUT_JSON = OUTPUT_DIR / "decanter_0520v2_focus.json"
+CASE_STEM = CASE_PATH.stem
+FULL_OUTPUT_JSON = OUTPUT_DIR / f"{CASE_STEM}_inspection.json"
+FOCUSED_OUTPUT_JSON = OUTPUT_DIR / f"{CASE_STEM}_focus.json"
+SPREADSHEET_ROW_RANGE = range(0, 20)
+SPREADSHEET_COLUMN_RANGE = range(0, 8)
 
 TARGET_MATERIAL_STREAMS: tuple[str, ...] = (
     "reactor_outlet",
     "separator_feed",
+    "decanter2_feed",
+    "decanter2_feed_cool",
     "off_gas",
-    "water_recycle",
-    "decanter_outlet",
-    "before_tower1_feed",
+    "water_recycle_1",
+    "water_recycle_2",
+    "decanter_outlet_1",
+    "decanter_outlet_2",
+    "before_tower1_feed_1",
+    "before_tower1_feed-2",
+    "tower1_feed_1",
+    "tower1_feed-2",
     "tower1_feed",
 )
 TARGET_ENERGY_STREAMS: tuple[str, ...] = (
     "CQ-1",
+    "CQ-2",
 )
 TARGET_OPERATIONS: tuple[str, ...] = (
     "C-1",
+    "C-2",
     "V-1",
+    "V-2",
+    "SPRDSHT-1",
+    "SPRDSHT-2",
     "VLV-1",
+    "VLV-2",
 )
 
 TARGET_OPERATION_PROBES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "C-1": (
+        ("Duty", ("kW", "kJ/h")),
+        ("PressureDrop", ("kPa",)),
+        ("FeedTemperature", ("C", "degC")),
+        ("ProductTemperature", ("C", "degC")),
+        ("FeedPressure", ("kPa",)),
+        ("ProductPressure", ("kPa",)),
+    ),
+    "C-2": (
         ("Duty", ("kW", "kJ/h")),
         ("PressureDrop", ("kPa",)),
         ("FeedTemperature", ("C", "degC")),
@@ -64,6 +92,16 @@ TARGET_OPERATION_PROBES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("LiquidMolarFlow", ("kgmole/h", "kmol/h")),
         ("HeavyLiquidMolarFlow", ("kgmole/h", "kmol/h")),
     ),
+    "V-2": (
+        ("VesselVolume", ("m3",)),
+        ("VesselPressure", ("kPa",)),
+        ("VesselTemperature", ("C", "degC")),
+        ("SeparatorDiameter", ("m",)),
+        ("SeparatorLengthOrHeight", ("m",)),
+        ("VapourMolarFlow", ("kgmole/h", "kmol/h")),
+        ("LiquidMolarFlow", ("kgmole/h", "kmol/h")),
+        ("HeavyLiquidMolarFlow", ("kgmole/h", "kmol/h")),
+    ),
     "VLV-1": (
         ("ProductPressure", ("kPa",)),
         ("FeedPressure", ("kPa",)),
@@ -71,6 +109,15 @@ TARGET_OPERATION_PROBES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("ProductTemperature", ("C", "degC")),
         ("FeedTemperature", ("C", "degC")),
     ),
+    "VLV-2": (
+        ("ProductPressure", ("kPa",)),
+        ("FeedPressure", ("kPa",)),
+        ("PressureDrop", ("kPa",)),
+        ("ProductTemperature", ("C", "degC")),
+        ("FeedTemperature", ("C", "degC")),
+    ),
+    "SPRDSHT-1": (),
+    "SPRDSHT-2": (),
 }
 
 
@@ -125,6 +172,59 @@ def get_quantity_value(obj: Any, attr_name: str, units: tuple[str, ...]) -> floa
     if isinstance(scalar_value, (int, float)):
         return float(scalar_value)
     return None
+
+
+def scalar_cell_value(value: Any) -> float | str | bool | None:
+    """spreadsheet cell の値を JSON 化できる形にする。"""
+    if value is None:
+        return None
+    if isinstance(value, (int, float, str, bool)):
+        return value
+    for attr_name in ("CellValue", "Value", "Text", "CellText", "Formula", "VariableName", "Units"):
+        try:
+            attr_value = getattr(value, attr_name)
+        except Exception:
+            continue
+        if isinstance(attr_value, (int, float, str, bool)):
+            return attr_value
+    return None
+
+
+def get_spreadsheet_cell(spreadsheet: Any, row: int, column: int) -> Any | None:
+    """spreadsheet の cell を複数の添字形式で試す。"""
+    cell = getattr(spreadsheet, "Cell", None)
+    if cell is None:
+        return None
+    for accessor in (
+        lambda: cell(row, column),
+        lambda: cell(column, row),
+        lambda: spreadsheet.Cell(row, column),
+        lambda: spreadsheet.Cell(column, row),
+    ):
+        try:
+            return accessor()
+        except Exception:
+            continue
+    return None
+
+
+def probe_spreadsheet_cells(spreadsheet: Any) -> list[dict[str, float | str | bool]]:
+    """spreadsheet cell のうち値が読めるものを抽出する。"""
+    cells: list[dict[str, float | str | bool]] = []
+    for row in SPREADSHEET_ROW_RANGE:
+        for column in SPREADSHEET_COLUMN_RANGE:
+            cell = get_spreadsheet_cell(spreadsheet, row, column)
+            value = scalar_cell_value(cell)
+            if value is None or value == "":
+                continue
+            cells.append(
+                {
+                    "row": row,
+                    "column": column,
+                    "value": value,
+                }
+            )
+    return cells
 
 
 def object_name(obj: Any) -> str:
@@ -184,7 +284,23 @@ def probe_target_operations(flowsheet: Any) -> dict[str, dict[str, float | None]
     return probed
 
 
-def build_focused_payload(inspection: CaseInspection, operation_probes: dict[str, dict[str, float | None]]) -> dict[str, Any]:
+def probe_target_spreadsheets(flowsheet: Any) -> dict[str, list[dict[str, float | str | bool]]]:
+    """対象 spreadsheet の cell 値を読む。"""
+    operations = get_target_operations(flowsheet)
+    probed: dict[str, list[dict[str, float | str | bool]]] = {}
+    for operation_name, operation in operations.items():
+        type_name = getattr(operation, "TypeName", "") if operation is not None else ""
+        if operation is None or str(type_name).lower() != "spreadsheetop":
+            continue
+        probed[operation_name] = probe_spreadsheet_cells(operation)
+    return probed
+
+
+def build_focused_payload(
+    inspection: Any,
+    operation_probes: dict[str, dict[str, float | None]],
+    spreadsheet_cells: dict[str, list[dict[str, float | str | bool]]],
+) -> dict[str, Any]:
     """デカンター最適化で必要な対象だけの JSON payload を作る。"""
     payload = strip_none(asdict(inspection))
     material_streams = pick_targets(
@@ -210,6 +326,7 @@ def build_focused_payload(inspection: CaseInspection, operation_probes: dict[str
             "operations": operations,
         },
         "operation_probes": operation_probes,
+        "spreadsheet_cells": spreadsheet_cells,
         "missing": {
             "material_streams": missing_names(material_streams),
             "energy_streams": missing_names(energy_streams),
@@ -237,10 +354,11 @@ def main() -> None:
         try:
             flowsheet = get_flowsheet(simulation_case)
             operation_probes = probe_target_operations(flowsheet)
+            spreadsheet_cells = probe_target_spreadsheets(flowsheet)
         finally:
             close_case(simulation_case)
         full_payload = strip_none(asdict(inspection))
-        focused_payload = build_focused_payload(inspection, operation_probes)
+        focused_payload = build_focused_payload(inspection, operation_probes, spreadsheet_cells)
         write_json(full_payload, FULL_OUTPUT_JSON)
         write_json(focused_payload, FOCUSED_OUTPUT_JSON)
         print(

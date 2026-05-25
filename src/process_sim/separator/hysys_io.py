@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Generator, Sequence
 
 import pythoncom
@@ -439,22 +440,110 @@ def run_hysys_separation_once(
     """反応器出口を書き込み、固定 stream の記録を返す。"""
     resolved_case_path = case_path.resolve()
     with hysys_case(resolved_case_path, visible=visible) as (_, simulation_case, prog_id):
-        flowsheet = get_flowsheet(simulation_case)
-        write_reactor_outlet(
-            flowsheet=flowsheet,
-            stream_name=inlet_stream_name,
+        return run_hysys_separation_with_open_case(
+            simulation_case=simulation_case,
+            prog_id=prog_id,
+            case_path=resolved_case_path,
             reactor_stream=reactor_stream,
             temperature_c=temperature_c,
             pressure_kpa=pressure_kpa,
+            inlet_stream_name=inlet_stream_name,
+            output_stream_names=output_stream_names,
         )
-        wait_for_hysys_calculation(simulation_case)
-        records = {
-            stream_name: read_material_stream_record(flowsheet, stream_name)
-            for stream_name in output_stream_names
-        }
-        metadata = {
-            "prog_id": prog_id,
-            "hysys_case_path": str(resolved_case_path),
-            "hysys_inlet_stream": inlet_stream_name,
-        }
-        return records, metadata
+
+
+def run_hysys_separation_with_open_case(
+    simulation_case: Any,
+    prog_id: str,
+    case_path: Path,
+    reactor_stream: ReactorStream,
+    temperature_c: float,
+    pressure_kpa: float,
+    inlet_stream_name: str = "reactor_outlet",
+    output_stream_names: Sequence[str] = PLANT_STREAM_NAMES,
+) -> tuple[dict[str, PlantStreamRecord], dict[str, Any]]:
+    """開いている HYSYS case に反応器出口を書き込み、固定 stream の記録を返す。"""
+    resolved_case_path = case_path.resolve()
+    flowsheet = get_flowsheet(simulation_case)
+    write_reactor_outlet(
+        flowsheet=flowsheet,
+        stream_name=inlet_stream_name,
+        reactor_stream=reactor_stream,
+        temperature_c=temperature_c,
+        pressure_kpa=pressure_kpa,
+    )
+    wait_for_hysys_calculation(simulation_case)
+    records = {
+        stream_name: read_material_stream_record(flowsheet, stream_name)
+        for stream_name in output_stream_names
+    }
+    metadata = {
+        "prog_id": prog_id,
+        "hysys_case_path": str(resolved_case_path),
+        "hysys_inlet_stream": inlet_stream_name,
+    }
+    return records, metadata
+
+
+class HysysSeparationSession:
+    """HYSYS case を開いたまま複数回の分離計算に再利用する。"""
+
+    def __init__(
+        self,
+        case_path: Path,
+        visible: bool = False,
+        inlet_stream_name: str = "reactor_outlet",
+        output_stream_names: Sequence[str] = PLANT_STREAM_NAMES,
+    ) -> None:
+        self.case_path = case_path.resolve()
+        self.visible = visible
+        self.inlet_stream_name = inlet_stream_name
+        self.output_stream_names = tuple(output_stream_names)
+        self._case_context: AbstractContextManager[tuple[Any, Any, str]] | None = None
+        self._simulation_case: Any | None = None
+        self._prog_id: str | None = None
+
+    def __enter__(self) -> HysysSeparationSession:
+        """HYSYS case を開く。"""
+        self._case_context = hysys_case(self.case_path, visible=self.visible)
+        _, simulation_case, prog_id = self._case_context.__enter__()
+        self._simulation_case = simulation_case
+        self._prog_id = prog_id
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        """HYSYS case を閉じる。"""
+        if self._case_context is None:
+            return None
+        try:
+            return self._case_context.__exit__(exc_type, exc, traceback)
+        finally:
+            self._case_context = None
+            self._simulation_case = None
+            self._prog_id = None
+
+    def run(
+        self,
+        reactor_stream: ReactorStream,
+        temperature_c: float,
+        pressure_kpa: float,
+    ) -> tuple[dict[str, PlantStreamRecord], dict[str, Any]]:
+        """開いている HYSYS case で1回分の分離計算を行う。"""
+        if self._simulation_case is None or self._prog_id is None:
+            raise RuntimeError("HYSYS session is not open")
+        records, metadata = run_hysys_separation_with_open_case(
+            simulation_case=self._simulation_case,
+            prog_id=self._prog_id,
+            case_path=self.case_path,
+            reactor_stream=reactor_stream,
+            temperature_c=temperature_c,
+            pressure_kpa=pressure_kpa,
+            inlet_stream_name=self.inlet_stream_name,
+            output_stream_names=self.output_stream_names,
+        )
+        return records, {**metadata, "hysys_session_reused": True}

@@ -9,7 +9,9 @@ description = "Process design workspace for EB to styrene project"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "japanize-matplotlib>=1.1.3",
     "matplotlib>=3.10.9",
+    "optuna>=4.8.0",
     "pywin32>=311",
 ]
 
@@ -31,6 +33,8 @@ run-reactor-case = "process_sim.cli:run_reactor_case_main"
 run-plant-once = "process_sim.plant.runner:run_plant_once_main"
 tune-plant-feed = "process_sim.plant.production_target:tune_fresh_feed_fast_main"
 run-plant-convergence = "process_sim.plant.convergence:run_plant_convergence_main"
+fast-production-target = "process_sim.plant.fast_production_target:fast_production_target_main"
+fast-plant-convergence = "process_sim.plant.fast_convergence:fast_plant_convergence_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/process_sim"]

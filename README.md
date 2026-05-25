@@ -56,10 +56,11 @@
 - 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できる。
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
 - production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
+- radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
 - HYSYS ケースの調査用スクリプトは `scripts/` にある。
-- 分離機は HYSYS ケース側で構築中であり、Python 側にはまだ分離機専用モジュールはない。
+- 分離機は HYSYS ケース側で構築中だが、Python 側には HYSYS I/O 用のモジュールがある。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
-- 経済収支計算は今後整理する対象である。
+- 経済収支計算は暫定実装があり、今後整理する対象である。
 
 ## 参考資料
 
@@ -99,12 +100,15 @@ data/
   report_md/                          # 過去レポート Markdown
   report_pdf/                         # 過去レポート PDF
 scripts/
+  axial-radial-comparison/            # axial/radial 比較スクリプト
   check_hysys_connection.py           # HYSYS 接続確認
+  decanter/                           # デカンター部分最適化
+  export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
-  run_plant_once.py                   # plant ワンパス実行
-  run_reactor_case.py                 # 反応器単体実行
+  reactor-profile/                    # 反応器プロファイル出力
+  run_fixed_plant_convergence.py      # 固定 feed で plant convergence
   run_reactor_to_decanter.py          # 反応器からデカンターへの接続試行
-  docs/
+docs/
   documentation-policy.md             # 文書運用方針
   optimization.md                     # 最適化設計メモ
   overview.md                         # 設定条件概要
@@ -122,6 +126,7 @@ src/process_sim/
   reactor/
     cases/
       styrene_default.py              # 既定反応器ケース
+      styrene_radial_default.py       # 既定ラジアル反応器ケース
     core/
       balance.py                      # 反応器収支式
       integrator.py                   # 数値積分
@@ -132,20 +137,30 @@ src/process_sim/
       thermodynamics.py               # 熱力学計算
     types/
       staged_adiabatic_pfr.py         # 多段断熱PFR
+      staged_adiabatic_radial.py      # 多段断熱ラジアル
+      pfr_adiabatic.py                # 断熱PFR
+      radial_adiabatic.py             # 断熱ラジアル
   optimization/
     models.py                         # 共通の探索範囲型
     reactor/
       parameters.py                   # 反応器パラメータ範囲と候補条件
       constraints.py                  # 反応器制約
+    runner/
+      radial_simple_optuna.py         # radial 反応器の簡易利益 Optuna runner
+      radial_fast_plant_optuna.py     # plant 経済収支 Optuna runner
   separator/
     hysys_io.py                       # HYSYS分離系I/O
   plant/
     const.py                         # plant 共通固定値
     convergence.py                   # plant recycle 収束計算
+    economics.py                     # plant 経済収支
+    fast_convergence.py              # HYSYS session 再利用 convergence
+    fast_production_target.py        # HYSYS session 再利用 production target
     feed.py                           # plant feed 作成
     models.py                         # plant 記録モデル
     production_target.py              # 生産量調整
     runner.py                         # plant 実行入口
+    session_runner.py                 # HYSYS session runner
     summary.py                        # plant 結果要約
 ```
 
@@ -261,15 +276,39 @@ uv run tune-plant-feed --target-sm-kmol-h 240.033 --max-runs 5
 
 収束判定では、SM が目標以上かつ過剰分が許容内であること、EB recycle と H2O recycle の自己一致誤差が許容内であることを見る。各 run 後に feed/SM と recycle consistency の累積表を logging で標準エラーへ出す。
 
+HYSYS case を開いたまま production target を実行する場合は、以下を使う。
+
+```powershell
+uv run fast-production-target
+```
+
+この入口は CLI 引数を持たない。既定の HYSYS case、既定 target SM、既定 radial 反応器を使い、HYSYS 表示は `False` 固定である。
+
 正式な recycle 収束計算は以下で行う。
 
 ```powershell
 uv run run-plant-convergence
 ```
 
-この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
+この実行では、まず `tune-plant-feed` と同じ production target 計算で feed 条件を求める。その最終 run の reactor feed を初回の recycle なし feed とし、2回目以降は固定 fresh feed と直前 run の `eb_recycle`、`water_recycle` を足して反復する。収束判定は3回目以降に、EB recycle と H2O recycle の自己一致だけで行い、SM product は記録するが判定には使わない。既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。
+
+HYSYS case を開いたまま production target から recycle convergence まで連続実行する場合は、以下を使う。
+
+```powershell
+uv run fast-plant-convergence
+```
+
+この入口も CLI 引数を持たない。production target と convergence で同じ HYSYS session を使い、途中で case を開き直さない。HYSYS 表示は `False` 固定である。
 
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
+
+radial 反応器の簡易利益 tuning は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.radial_simple_optuna
+```
+
+探索条件は `src/process_sim/optimization/runner/radial_simple_optuna.py` の冒頭定数を直接編集する。2段と3段は別 study として実行し、各 trial の候補条件、制約結果、簡易利益内訳を logging に出す。各 trial の反応器詳細ログは標準出力に出す。
 
 
 ## 主要文書
@@ -297,17 +336,3 @@ uv run run-plant-convergence
 - 設計判断は、後から理由を追える形で残す。
 - HYSYS 側の変更も、可能な限り文書として記録する。
 - Codex を使った作業も、後から追跡できる形で残す。
-
-## 未確定事項
-
-以下は現時点で未確定である。
-
-- Python と HYSYS の接続方法の詳細
-- HYSYS 分離機を Python 側でどこまで抽象化するか
-- リサイクル収束計算の実装方針
-- プラント全体ログの出力形式
-- 経済収支計算に使う価格と出典の管理方法
-- 数値モデルの妥当性確認に使う基準値
-- 最終的な最適化の範囲
-
-未確定事項は、その都度整理しながら `docs/` に反映していく。

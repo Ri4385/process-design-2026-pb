@@ -62,8 +62,14 @@ class StagedAdiabaticRadialFlowModel:
             zip(conditions.stage_inlet_temperatures_k, conditions.bed_thicknesses_m, strict=True),
             start=1,
         ):
+            bed_inner_radius_m = self._bed_inner_radius_m(
+                stream=current_stream,
+                temperature_k=stage_temperature_k,
+                pressure_pa=current_pressure_pa,
+                conditions=conditions,
+            )
             geometry = RadialBedGeometry(
-                inner_radius_m=conditions.bed_inner_radius_m,
+                inner_radius_m=bed_inner_radius_m,
                 bed_height_m=conditions.bed_height_m,
                 bed_thickness_m=bed_thickness_m,
                 catalyst_bulk_density_kg_m3=conditions.catalyst_bulk_density_kg_m3,
@@ -117,14 +123,21 @@ class StagedAdiabaticRadialFlowModel:
             (log.max_re_over_one_minus_void or 0.0 for log in stage_logs),
             default=0.0,
         )
+        first_stage_inner_radius_m = stage_logs[0].inner_radius_m
         result_log = ReactorRunLog(
-            cross_section_area_m2=2.0 * 3.141592653589793 * conditions.bed_inner_radius_m * conditions.bed_height_m,
+            cross_section_area_m2=first_stage_inner_radius_m * 2.0 * 3.141592653589793 * conditions.bed_height_m
+            if first_stage_inner_radius_m is not None
+            else 0.0,
             inlet_volumetric_flow_m3_s=profile[0].superficial_velocity_m_per_s
             * 2.0
             * 3.141592653589793
-            * conditions.bed_inner_radius_m
+            * first_stage_inner_radius_m
             * conditions.bed_height_m
-            if profile and profile[0].superficial_velocity_m_per_s is not None
+            if (
+                profile
+                and profile[0].superficial_velocity_m_per_s is not None
+                and first_stage_inner_radius_m is not None
+            )
             else 0.0,
             stage_logs=tuple(stage_logs),
             profile=tuple(profile),
@@ -137,7 +150,7 @@ class StagedAdiabaticRadialFlowModel:
             carbon_balance_error_fraction=carbon_error,
             hydrogen_balance_error_fraction=hydrogen_error,
             atom_balance_ok=carbon_error < 1e-8 and hydrogen_error < 1e-8,
-            outlet_pressure_ok=outlet_state.pressure_kpa >= 30.0,
+            outlet_pressure_ok=outlet_state.pressure_kpa >= 50.0,
             pressure_positive_ok=all(log.pressure_positive_ok is not False for log in stage_logs)
             and all(interstage_pressure_positive_values),
             ergun_range_ok=max_re < 500.0,
@@ -160,3 +173,23 @@ class StagedAdiabaticRadialFlowModel:
             raise ValueError("radial staged model supports only 2 or 3 stages")
         if conditions.inlet_pressure_pa <= 0.0:
             raise ValueError("inlet_pressure_pa must be positive")
+        if conditions.inlet_superficial_velocity_m_per_s <= 0.0:
+            raise ValueError("inlet_superficial_velocity_m_per_s must be positive")
+
+    def _bed_inner_radius_m(
+        self,
+        stream: ReactorFeed,
+        temperature_k: float,
+        pressure_pa: float,
+        conditions: RadialReactorRunConditions,
+    ) -> float:
+        """各段入口空塔速度から触媒床内半径を計算する。"""
+        total_flow_mol_s = stream.total_flow_kmol_s() * 1000.0
+        inlet_volumetric_flow_m3_s = (
+            total_flow_mol_s
+            * self.universal.gas_constant_j_per_mol_k
+            * temperature_k
+            / pressure_pa
+        )
+        inlet_area_m2 = inlet_volumetric_flow_m3_s / conditions.inlet_superficial_velocity_m_per_s
+        return inlet_area_m2 / (2.0 * 3.141592653589793 * conditions.bed_height_m)

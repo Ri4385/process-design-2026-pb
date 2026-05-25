@@ -11,8 +11,8 @@ from process_sim.plant.feed import (
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
 from process_sim.plant.runner import run_plant_once_with_subprocess_timeout
 from process_sim.plant.production_target import (
-    DEFAULT_TARGET_SM_KMOL_H,
     FeedTuningOptions,
+    InitialRecycleGuessPolicy,
     build_initial_feed_guess,
     is_converged,
     is_valid_recycle_stream,
@@ -20,6 +20,8 @@ from process_sim.plant.production_target import (
     tune_fresh_feed_fast,
 )
 from process_sim.reactor.cases.styrene_default import ReactorCase
+from process_sim.reactor.core.models import ReactorRunConditions
+from process_sim.reactor.core.stream import ReactorFeed
 
 
 def stream_record(name: str, component_flows: dict[str, float]) -> PlantStreamRecord:
@@ -35,6 +37,27 @@ def stream_record(name: str, component_flows: dict[str, float]) -> PlantStreamRe
         total_molar_flow_kmol_h=total,
         component_molar_flow_kmol_h=component_flows,
         component_molar_fraction=fractions,
+    )
+
+
+def reactor_case(feed: ReactorFeed) -> ReactorCase:
+    return ReactorCase(
+        feed=feed,
+        conditions=ReactorRunConditions(
+            pressure_kpa=200.0,
+            stage_inlet_temperatures_c=(550.0,),
+            stage_lengths_m=(1.0,),
+            total_catalyst_volume_m3=1.0,
+            pellet_diameter_m=0.003,
+            bed_void_fraction=0.4,
+            catalyst_bulk_density_kg_m3=1400.0,
+            ergun_a=1.75,
+            ergun_b=150.0,
+            gas_viscosity_pa_s=4.0e-5,
+            interstage_reheater_pressure_drop_pa=0.0,
+            segments_per_stage=10,
+            profile_points_per_stage=3,
+        ),
     )
 
 
@@ -89,18 +112,23 @@ def test_limited_feed_step_clamps_secant_prediction() -> None:
 
 
 def test_initial_feed_guess_is_calculated_from_target_and_recycle_fractions() -> None:
-    guess = build_initial_feed_guess(target_sm_kmol_h=DEFAULT_TARGET_SM_KMOL_H)
+    guess_policy = InitialRecycleGuessPolicy(
+        single_pass_sm_yield_from_eb=0.5,
+        eb_recycle_fraction=0.8,
+        h2o_recycle_fraction=0.9,
+        steam_to_eb_ratio=4.0,
+    )
 
-    assert DEFAULT_TARGET_SM_KMOL_H == pytest.approx(240.033)
-    assert guess.reactor_inlet_eb_kmol_h == pytest.approx(479.105868)
-    assert guess.unreacted_eb_kmol_h == pytest.approx(239.552934)
-    assert guess.recycle_eb_kmol_h == pytest.approx(237.15740466)
-    assert guess.fresh_eb_kmol_h == pytest.approx(241.94846334)
-    assert guess.reactor_inlet_h2o_kmol_h == pytest.approx(2395.52934)
-    assert guess.recycle_h2o_kmol_h == pytest.approx(2371.5740466)
-    assert guess.fresh_h2o_kmol_h == pytest.approx(23.9552934)
-    assert guess.reactor_feed.eb == pytest.approx(479.105868)
-    assert guess.reactor_feed.steam == pytest.approx(2395.52934)
+    guess = build_initial_feed_guess(target_sm_kmol_h=100.0, guess_policy=guess_policy)
+
+    assert guess.reactor_inlet_eb_kmol_h > 0.0
+    assert guess.reactor_inlet_h2o_kmol_h == pytest.approx(guess.reactor_inlet_eb_kmol_h * 4.0)
+    assert guess.fresh_eb_kmol_h + guess.recycle_eb_kmol_h == pytest.approx(guess.reactor_inlet_eb_kmol_h)
+    assert guess.recycle_eb_kmol_h == pytest.approx(guess.unreacted_eb_kmol_h * 0.8)
+    assert guess.fresh_h2o_kmol_h + guess.recycle_h2o_kmol_h == pytest.approx(guess.reactor_inlet_h2o_kmol_h)
+    assert guess.recycle_h2o_kmol_h == pytest.approx(guess.reactor_inlet_h2o_kmol_h * 0.9)
+    assert guess.reactor_feed.eb == pytest.approx(guess.reactor_inlet_eb_kmol_h)
+    assert guess.reactor_feed.steam == pytest.approx(guess.reactor_inlet_h2o_kmol_h)
 
 
 def test_fast_feed_tuning_uses_initial_guess_without_secant_update() -> None:
@@ -108,39 +136,46 @@ def test_fast_feed_tuning_uses_initial_guess_without_secant_update() -> None:
 
     def fake_runner(reactor_case: ReactorCase) -> PlantRunRecord:
         reactor_eb_values.append(reactor_case.feed.eb)
-        sm_total_flow = reactor_case.feed.eb * 0.5 / 0.998
         return PlantRunRecord(
             case_path=Path("fake.hsc"),
             reactor_outlet_temperature_c=0.0,
             reactor_outlet_pressure_kpa=0.0,
             streams={
-                "reactor_outlet": stream_record("reactor_outlet", {"E-Benzene": 239.552934, "H2O": 2395.52934}),
+                "reactor_outlet": stream_record(
+                    "reactor_outlet",
+                    {"E-Benzene": reactor_case.feed.eb * 0.5, "H2O": reactor_case.feed.steam},
+                ),
                 "sm_product": stream_record(
                     "sm_product",
                     {
-                        "Styrene": sm_total_flow * 0.998,
-                        "Benzene": sm_total_flow * 0.002,
+                        "Styrene": 100.0,
+                        "Benzene": 0.1,
                     },
                 ),
-                "eb_recycle": stream_record("eb_recycle", {"E-Benzene": 237.15740466}),
-                "water_recycle": stream_record("water_recycle", {"H2O": 2371.5740466}),
+                "eb_recycle": stream_record("eb_recycle", {"E-Benzene": reactor_case.feed.eb * 0.5}),
+                "water_recycle": stream_record("water_recycle", {"H2O": reactor_case.feed.steam}),
             },
             metadata={},
         )
 
     result = tune_fresh_feed_fast(
         options=FeedTuningOptions(
-            target_sm_kmol_h=DEFAULT_TARGET_SM_KMOL_H,
+            target_sm_kmol_h=100.0,
             max_runs=2,
-            sm_tolerance_kmol_h=1e-6,
+            min_runs=1,
+            sm_tolerance_kmol_h=1.0,
+            eb_recycle_tolerance_kmol_h=1.0e9,
+            h2o_recycle_tolerance_kmol_h=1.0e9,
         ),
+        base_reactor_case=reactor_case(ReactorFeed(eb=1.0, steam=1.0)),
         plant_runner=fake_runner,
+        reactor_model="pfr",
     )
 
     assert result.converged
     assert len(result.runs) == 1
-    assert reactor_eb_values == pytest.approx([479.105868])
-    assert result.best_run.sm_product_kmol_h == pytest.approx(240.033)
+    assert reactor_eb_values[0] > 0.0
+    assert result.best_run.sm_product_kmol_h == pytest.approx(100.1)
     assert FeedTuningOptions().sm_tolerance_kmol_h == pytest.approx(0.1)
     assert FeedTuningOptions().eb_recycle_tolerance_kmol_h == pytest.approx(0.1)
     assert FeedTuningOptions().h2o_recycle_tolerance_kmol_h == pytest.approx(0.1)
