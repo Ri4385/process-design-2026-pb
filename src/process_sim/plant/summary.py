@@ -6,6 +6,8 @@ from collections.abc import Mapping, Sequence
 import math
 from typing import cast
 
+from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
+from process_sim.plant.const import HOURS_PER_YEAR
 from process_sim.plant.models import PlantRunRecord, PlantStreamRecord
 from process_sim.reactor.core.models import ReactorResult, ReactorStageLog
 from process_sim.reactor.core.stream import COMPONENT_ORDER
@@ -53,6 +55,18 @@ REACTOR_FIELD_TO_HYSYS_COMPONENT: dict[str, str] = {
     "methane": "Methane",
     "co": "CO",
 }
+HYSYS_COMPONENT_TO_SPECIES_ID: dict[str, str] = {
+    "Styrene": "styrene",
+    "E-Benzene": "eb",
+    "H2O": "steam",
+    "Benzene": "benzene",
+    "Toluene": "toluene",
+    "Hydrogen": "hydrogen",
+    "Methane": "methane",
+    "CO2": "co2",
+    "Ethylene": "ethylene",
+    "CO": "co",
+}
 
 
 def format_plant_run_summary(record: PlantRunRecord) -> str:
@@ -69,6 +83,9 @@ def format_plant_run_summary(record: PlantRunRecord) -> str:
         "",
         "[Products]",
         *format_stream_table(record, PRODUCT_STREAMS),
+        "",
+        "[Production]",
+        *format_production(record),
         "",
         "[Recycle]",
         *format_stream_table(record, RECYCLE_STREAMS),
@@ -429,9 +446,19 @@ def format_separation_feed(record: PlantRunRecord) -> list[str]:
     separator_feed = record.streams.get("separator_feed")
     return [
         f"reactor_outlet T: {fmt(stream_temperature(reactor_outlet), 2)} C",
+        f"reactor_outlet P: {fmt(stream_pressure(reactor_outlet), 2)} kPa",
         f"separator_feed T: {fmt(stream_temperature(separator_feed), 2)} C",
         f"separator_feed total: {fmt(stream_total_flow(separator_feed), 2)} kmol/h",
     ]
+
+
+def format_production(record: PlantRunRecord) -> list[str]:
+    """SM product stream 全体の年産量を返す。"""
+    sm_product = record.streams.get("sm_product")
+    sm_product_10kt_y = stream_mass_flow_kg_h(sm_product)
+    if sm_product_10kt_y is not None:
+        sm_product_10kt_y = sm_product_10kt_y * HOURS_PER_YEAR / 10_000_000.0
+    return [f"SM product stream total: {fmt(sm_product_10kt_y, 3)} 10kt/year"]
 
 
 def format_stream_table(record: PlantRunRecord, streams: tuple[tuple[str, str], ...]) -> list[str]:
@@ -522,9 +549,27 @@ def stream_temperature(stream: PlantStreamRecord | None) -> float | None:
     return None if stream is None else stream.temperature_c
 
 
+def stream_pressure(stream: PlantStreamRecord | None) -> float | None:
+    """stream 圧力を返す。"""
+    return None if stream is None else stream.pressure_kpa
+
+
 def stream_total_flow(stream: PlantStreamRecord | None) -> float | None:
     """stream 総モル流量を返す。"""
     return None if stream is None else stream.total_molar_flow_kmol_h
+
+
+def stream_mass_flow_kg_h(stream: PlantStreamRecord | None) -> float | None:
+    """stream 全体の質量流量を kg/h で返す。"""
+    if stream is None:
+        return None
+    mass_flow_kg_h = 0.0
+    for component_name, flow_kmol_h in stream.component_molar_flow_kmol_h.items():
+        species_id = HYSYS_COMPONENT_TO_SPECIES_ID.get(component_name)
+        if species_id is None:
+            return None
+        mass_flow_kg_h += flow_kmol_h * SPECIES_PHYSICAL_PROPERTIES[species_id].molecular_weight
+    return mass_flow_kg_h
 
 
 def label(component_name: str) -> str:
