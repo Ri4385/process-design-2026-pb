@@ -58,7 +58,7 @@ def make_test_radial_case() -> RadialReactorCase:
         conditions=RadialReactorRunConditions(
             inlet_pressure_pa=200_000.0,
             stage_inlet_temperatures_k=(823.15, 823.15, 823.15),
-            bed_inner_radius_m=1.0,
+            inlet_superficial_velocity_m_per_s=2.0,
             bed_height_m=5.0,
             bed_thicknesses_m=(0.45, 0.9, 0.9),
             pellet_diameter_m=0.003,
