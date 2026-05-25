@@ -1,13 +1,16 @@
 """蒸留塔の段数 case ごとに feed 段を sweep して部分最適化する。
 
-HYSYS COM の不安定性を切り分けるため、以下を行う。
+HYSYS COM の不安定性を避けるため、feed 段探索は以下の順で行う。
 
-- feed 段は base feed であっても毎回 SpecifyFeedLocation で書き込む。
-- feed 1 点ごとに開始、書込前、書込後、solve 後、duty 読取前後をログ出力する。
-- feed 段変更後は flowsheet と ColumnFlowsheet を毎回取り直す。
-- feed 段変更後に case solver だけでなく column/tower 側の solve も促す。
-- condenser/reboiler duty は ColumnFlowsheet と main flowsheet の両方から名前指定で読む。
-- EnergyStreams の順番指定にはフォールバックしない。
+1. case を開く
+2. base feed を評価する
+3. base から下方向へ連続探索する
+4. timeout などで不安定になったら、その方向の探索を打ち切る
+5. case を開き直す
+6. base から上方向へ連続探索する
+7. 結果を結合して最良 feed 段を選ぶ
+
+hysys_io.py は変更しない前提。
 """
 
 from __future__ import annotations
@@ -35,12 +38,12 @@ from process_sim.separator.hysys_io import (
     get_quantity,
     hysys_case,
     iter_collection_items,
-    wait_for_hysys_calculation,
 )
 
 
 TargetTower = Literal["tower1", "tower2", "tower3"]
 GridLevel = Literal["coarse", "fine"]
+SweepDirection = Literal["base_lower", "upper"]
 T = TypeVar("T")
 
 TARGET_TOWER: TargetTower = "tower1"
@@ -112,7 +115,19 @@ TOWER1_MAX_BOTTOM_TEMPERATURE_C = 100.0
 
 HYSYS_READ_RETRY_COUNT = 5
 HYSYS_READ_RETRY_WAIT_S = 0.8
+
+FEED_TIMEOUT_S = 8.0
 COLUMN_POST_SOLVE_WAIT_S = 1.0
+
+STOP_DIRECTION_ON_UNSTABLE_INVALID = True
+UNSTABLE_INVALID_KEYWORDS: tuple[str, ...] = (
+    "timeout",
+    "収束",
+    "conver",
+    "condenser duty",
+    "reboiler duty",
+    "取得できません",
+)
 
 FEED_STAGE_ATTR_NAMES: tuple[str, ...] = (
     "StageNumberValue",
@@ -175,6 +190,7 @@ class FeedStageResult(BaseModel):
     """feed 段 1 点の評価結果。"""
 
     case_name: str
+    sweep_direction: SweepDirection
     stage_count: int
     feed_stage: int
     actual_feed_stage: int | None = None
@@ -219,7 +235,12 @@ def log(message: str) -> None:
         print(message, flush=True)
 
 
-def log_step(case_name: str, feed_stage: int, step: str, detail: str = "") -> None:
+def log_step(
+    case_name: str,
+    feed_stage: int,
+    step: str,
+    detail: str = "",
+) -> None:
     """feed 段ごとの途中経過を表示する。"""
     suffix = f" {detail}" if detail else ""
     log(f"[feed-step] file={case_name} feed={feed_stage} step={step}{suffix}")
@@ -321,6 +342,7 @@ def collection_item_by_name(collection: Any, name: str) -> Any | None:
     for item in iter_collection_items(collection):
         if object_name(item) == name:
             return item
+
     return None
 
 
@@ -337,6 +359,53 @@ def call_com_method_if_exists(obj: Any, method_names: Sequence[str]) -> bool:
     return False
 
 
+def stop_solver(simulation_case: Any) -> None:
+    """HYSYS solver を止める。"""
+    solver = getattr(simulation_case, "Solver", None)
+    if solver is None:
+        return
+    try:
+        solver.CanSolve = False
+    except Exception:
+        pass
+
+
+def wait_for_hysys_calculation_limited(
+    simulation_case: Any,
+    timeout_s: float,
+) -> None:
+    """指定秒数だけ HYSYS の計算完了を待つ。"""
+    solver = getattr(simulation_case, "Solver", None)
+    if solver is None:
+        return
+
+    can_solve = getattr(solver, "CanSolve", None)
+    if isinstance(can_solve, bool) and not can_solve:
+        try:
+            solver.CanSolve = True
+        except Exception:
+            pass
+
+    for method_name in ("Solve", "Run"):
+        method = getattr(solver, method_name, None)
+        if callable(method):
+            try:
+                method()
+                break
+            except Exception:
+                pass
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        is_solving = getattr(solver, "IsSolving", None)
+        if not isinstance(is_solving, bool) or not is_solving:
+            return
+        time.sleep(0.2)
+
+    stop_solver(simulation_case)
+    raise TimeoutError(f"HYSYS calculation timeout after {timeout_s:.1f} s")
+
+
 def fresh_column_refs(simulation_case: Any, target_tower: TargetTower) -> ColumnRefs:
     """flowsheet、tower、ColumnFlowsheet を毎回取り直す。"""
     flowsheet = get_flowsheet(simulation_case)
@@ -346,7 +415,11 @@ def fresh_column_refs(simulation_case: Any, target_tower: TargetTower) -> Column
         raise RuntimeError(
             f"{TOWER_OPERATION_NAMES[target_tower]}.ColumnFlowsheet を取得できませんでした"
         )
-    return ColumnRefs(flowsheet=flowsheet, tower=tower, column_flowsheet=column_flowsheet)
+    return ColumnRefs(
+        flowsheet=flowsheet,
+        tower=tower,
+        column_flowsheet=column_flowsheet,
+    )
 
 
 def available_energy_stream_names(collection: Any) -> list[str]:
@@ -468,7 +541,7 @@ def solve_column_after_feed_change(
             ("Solve", "Run", "Calculate", "Recalculate"),
         )
 
-    wait_for_hysys_calculation(simulation_case)
+    wait_for_hysys_calculation_limited(simulation_case, FEED_TIMEOUT_S)
     time.sleep(COLUMN_POST_SOLVE_WAIT_S)
 
     log_step(case_name, feed_stage, "column-solve-done")
@@ -504,7 +577,7 @@ def apply_feed_stage(
         set_solver_can_solve(simulation_case, True)
 
     log_step(case_name, feed_stage, "case-solve-start")
-    wait_for_hysys_calculation(simulation_case)
+    wait_for_hysys_calculation_limited(simulation_case, FEED_TIMEOUT_S)
     log_step(case_name, feed_stage, "case-solve-done")
 
     solve_column_after_feed_change(
@@ -521,15 +594,17 @@ def apply_feed_stage(
     return actual_stage
 
 
-def feed_stage_candidates(stage_count: int, base_stage: int | None) -> list[int]:
-    """現在 feed 段から片側ずつ広げる候補順を返す。"""
+def directional_feed_stage_candidates(
+    stage_count: int,
+    base_stage: int | None,
+) -> tuple[list[int], list[int]]:
+    """下方向探索用と上方向探索用の feed 段候補を返す。"""
     if base_stage is None or base_stage < 1 or base_stage > stage_count:
-        return list(range(1, stage_count + 1))
-    return [
-        base_stage,
-        *range(base_stage - 1, 0, -1),
-        *range(base_stage + 1, stage_count + 1),
-    ]
+        return list(range(1, stage_count + 1)), []
+
+    base_lower = [base_stage, *range(base_stage - 1, 0, -1)]
+    upper = list(range(base_stage + 1, stage_count + 1))
+    return base_lower, upper
 
 
 def column_height_m(stage_count: int) -> float:
@@ -720,7 +795,9 @@ def column_energy_streams_from_main_flowsheet(
         condenser = get_energy_stream(flowsheet, stream_names["condenser"])
         reboiler = get_energy_stream(flowsheet, stream_names["reboiler"])
     except Exception as exc:
-        available = available_energy_stream_names(getattr(flowsheet, "EnergyStreams", None))
+        available = available_energy_stream_names(
+            getattr(flowsheet, "EnergyStreams", None)
+        )
         raise RuntimeError(
             "main flowsheet の energy stream 名が一致しません: "
             f"required={stream_names}, available={available}"
@@ -857,7 +934,10 @@ def column_shell_capital_cost_yen(diameter_m: float, height_m: float) -> float:
     return COLUMN_SHELL_COST_FACTOR_YEN * diameter_m**1.066 * height_m**0.82
 
 
-def cooling_duty_split_kw(total_duty_kw: float, inlet_temperature_c: float) -> tuple[float, float]:
+def cooling_duty_split_kw(
+    total_duty_kw: float,
+    inlet_temperature_c: float,
+) -> tuple[float, float]:
     """製品冷却 duty を冷却水分とプロピレン冷媒分に分ける。"""
     total = abs(total_duty_kw)
     if inlet_temperature_c <= PRODUCT_TARGET_TEMPERATURE_C or total <= 0.0:
@@ -985,6 +1065,7 @@ def tower1_constraint_reason(
 def evaluate_feed_stage(
     simulation_case: Any,
     case_name: str,
+    sweep_direction: SweepDirection,
     stage_count: int,
     feed_stage: int,
     target_tower: TargetTower,
@@ -993,7 +1074,7 @@ def evaluate_feed_stage(
     actual_feed_stage: int | None = None
 
     try:
-        log_step(case_name, feed_stage, "evaluate-start")
+        log_step(case_name, feed_stage, "evaluate-start", f"direction={sweep_direction}")
 
         actual_feed_stage = apply_feed_stage(
             simulation_case=simulation_case,
@@ -1050,6 +1131,7 @@ def evaluate_feed_stage(
 
         return FeedStageResult(
             case_name=case_name,
+            sweep_direction=sweep_direction,
             stage_count=stage_count,
             feed_stage=feed_stage,
             actual_feed_stage=actual_feed_stage,
@@ -1073,12 +1155,22 @@ def evaluate_feed_stage(
         log_step(case_name, feed_stage, "evaluate-error", str(exc))
         return FeedStageResult(
             case_name=case_name,
+            sweep_direction=sweep_direction,
             stage_count=stage_count,
             feed_stage=feed_stage,
             actual_feed_stage=actual_feed_stage,
             valid=False,
             invalid_reason=str(exc),
         )
+
+
+def should_stop_direction(result: FeedStageResult) -> bool:
+    """この結果で方向探索を打ち切るべきか判定する。"""
+    if result.valid or not STOP_DIRECTION_ON_UNSTABLE_INVALID:
+        return False
+
+    reason = result.invalid_reason.lower()
+    return any(keyword.lower() in reason for keyword in UNSTABLE_INVALID_KEYWORDS)
 
 
 def value_text(value: float | None) -> str:
@@ -1101,8 +1193,8 @@ def log_feed_result(result: FeedStageResult) -> None:
     reboiler_name = result.reboiler_stream_name or "nan"
 
     log(
-        f"[feed] file={result.case_name} N={result.stage_count} "
-        f"feed={result.feed_stage} actual_feed={actual_feed} "
+        f"[feed] file={result.case_name} direction={result.sweep_direction} "
+        f"N={result.stage_count} feed={result.feed_stage} actual_feed={actual_feed} "
         f"D={value_text(result.diameter_m)} H={value_text(result.height_m)} "
         f"L/D={ld_text}{warning} "
         f"Ttop={value_text(result.top_temperature_c)} "
@@ -1129,83 +1221,188 @@ def best_valid_feed_result(results: Sequence[FeedStageResult]) -> FeedStageResul
     return min(valid_results, key=lambda result: result.objective_yen_per_year or math.inf)
 
 
+def inspect_case_basis(
+    simulation_case: Any,
+    target_tower: TargetTower,
+) -> tuple[int, int | None]:
+    """case の段数と base feed 段を読む。"""
+    refs = fresh_column_refs(simulation_case, target_tower)
+    stage_count = stage_count_from_column(refs.column_flowsheet)
+    base_feed_stage = current_feed_stage(refs.column_flowsheet)
+    return stage_count, base_feed_stage
+
+
+def run_feed_direction(
+    simulation_case: Any,
+    case_name: str,
+    target_tower: TargetTower,
+    sweep_direction: SweepDirection,
+    stage_count: int,
+    candidates: Sequence[int],
+) -> list[FeedStageResult]:
+    """開いている case で一方向の feed 段探索を行う。"""
+    results: list[FeedStageResult] = []
+
+    for feed_index, feed_stage in enumerate(candidates, start=1):
+        log(
+            f"[feed-start] file={case_name} direction={sweep_direction} "
+            f"N={stage_count} {feed_index}/{len(candidates)} "
+            f"requested_feed={feed_stage}"
+        )
+
+        result = evaluate_feed_stage(
+            simulation_case=simulation_case,
+            case_name=case_name,
+            sweep_direction=sweep_direction,
+            stage_count=stage_count,
+            feed_stage=feed_stage,
+            target_tower=target_tower,
+        )
+        results.append(result)
+        log_feed_result(result)
+
+        if should_stop_direction(result):
+            log(
+                f"[direction-stop] file={case_name} direction={sweep_direction} "
+                f"feed={feed_stage} reason={result.invalid_reason}"
+            )
+            break
+
+    return results
+
+
 def sweep_case(
     case_path: Path,
     target_tower: TargetTower,
     case_index: int,
     total_cases: int,
 ) -> CaseSweepResult:
-    """HYSYS case 1 ファイルについて feed 段を sweep する。"""
+    """HYSYS case 1 ファイルについて feed 段を方向別に sweep する。"""
     try:
-        with hysys_case(case_path.resolve(), visible=VISIBLE_HYSYS) as (_, simulation_case, _):
-            refs = fresh_column_refs(simulation_case, target_tower)
-            stage_count = stage_count_from_column(refs.column_flowsheet)
-            base_feed_stage = current_feed_stage(refs.column_flowsheet)
+        all_feed_results: list[FeedStageResult] = []
 
-            log(f"[case] file={case_path.name} base_feed_stage={base_feed_stage}")
-
-            candidates = feed_stage_candidates(stage_count, base_feed_stage)
-            feed_results: list[FeedStageResult] = []
-
-            for feed_index, feed_stage in enumerate(candidates, start=1):
-                log(
-                    f"[feed-start] file={case_path.name} "
-                    f"N={stage_count} {feed_index}/{len(candidates)} "
-                    f"requested_feed={feed_stage} base_feed={base_feed_stage}"
-                )
-
-                result = evaluate_feed_stage(
-                    simulation_case=simulation_case,
-                    case_name=case_path.name,
-                    stage_count=stage_count,
-                    feed_stage=feed_stage,
-                    target_tower=target_tower,
-                )
-                feed_results.append(result)
-                log_feed_result(result)
-
-            best = best_valid_feed_result(feed_results)
-            if best is None:
-                invalid_reason = "; ".join(
-                    sorted({result.invalid_reason for result in feed_results if result.invalid_reason})
-                )
-                log(
-                    f"[case] {case_index}/{total_cases} file={case_path.name} "
-                    f"N={stage_count} invalid: {invalid_reason}"
-                )
-                return CaseSweepResult(
-                    case_name=case_path.name,
-                    case_path=str(case_path.resolve()),
-                    stage_count=stage_count,
-                    valid=False,
-                    invalid_reason=invalid_reason,
-                )
-
-            ld_warning = " ld_warning" if best.ld_warning else ""
+        with hysys_case(case_path.resolve(), visible=VISIBLE_HYSYS) as (
+            _,
+            simulation_case,
+            _,
+        ):
+            stage_count, base_feed_stage = inspect_case_basis(
+                simulation_case,
+                target_tower,
+            )
             log(
-                f"[case] {case_index}/{total_cases} file={case_path.name} "
-                f"N={stage_count} best_feed={best.feed_stage} "
-                f"L/D={best.ld_ratio:.3f}{ld_warning} "
-                f"J={cost_to_oku_yen_per_year(best.objective_yen_per_year):.4f} "
-                f"equipment={cost_to_oku_yen_per_year(best.equipment_cost_yen_per_year):.4f} "
-                f"utility={cost_to_oku_yen_per_year(best.utility_cost_yen_per_year):.4f} "
-                "oku-yen/year valid"
+                f"[case] file={case_path.name} "
+                f"base_feed_stage={base_feed_stage}"
             )
 
+            base_lower_candidates, upper_candidates = directional_feed_stage_candidates(
+                stage_count,
+                base_feed_stage,
+            )
+
+            log(
+                f"[direction-start] file={case_path.name} "
+                f"direction=base_lower count={len(base_lower_candidates)}"
+            )
+            all_feed_results.extend(
+                run_feed_direction(
+                    simulation_case=simulation_case,
+                    case_name=case_path.name,
+                    target_tower=target_tower,
+                    sweep_direction="base_lower",
+                    stage_count=stage_count,
+                    candidates=base_lower_candidates,
+                )
+            )
+
+        if upper_candidates:
+            log(
+                f"[case-reopen] file={case_path.name} "
+                "reason=upper_direction_start"
+            )
+            with hysys_case(case_path.resolve(), visible=VISIBLE_HYSYS) as (
+                _,
+                simulation_case,
+                _,
+            ):
+                reopened_stage_count, reopened_base_feed_stage = inspect_case_basis(
+                    simulation_case,
+                    target_tower,
+                )
+                log(
+                    f"[case] file={case_path.name} reopened_base_feed_stage="
+                    f"{reopened_base_feed_stage}"
+                )
+
+                if reopened_stage_count != stage_count:
+                    raise RuntimeError(
+                        f"reopened stage_count changed: "
+                        f"before={stage_count}, after={reopened_stage_count}"
+                    )
+
+                log(
+                    f"[direction-start] file={case_path.name} "
+                    f"direction=upper count={len(upper_candidates)}"
+                )
+                all_feed_results.extend(
+                    run_feed_direction(
+                        simulation_case=simulation_case,
+                        case_name=case_path.name,
+                        target_tower=target_tower,
+                        sweep_direction="upper",
+                        stage_count=stage_count,
+                        candidates=upper_candidates,
+                    )
+                )
+
+        best = best_valid_feed_result(all_feed_results)
+        if best is None:
+            invalid_reason = "; ".join(
+                sorted(
+                    {
+                        result.invalid_reason
+                        for result in all_feed_results
+                        if result.invalid_reason
+                    }
+                )
+            )
+            log(
+                f"[case] {case_index}/{total_cases} file={case_path.name} "
+                f"N={stage_count} invalid: {invalid_reason}"
+            )
             return CaseSweepResult(
                 case_name=case_path.name,
                 case_path=str(case_path.resolve()),
                 stage_count=stage_count,
-                valid=True,
-                best_feed_stage=best.feed_stage,
-                equipment_cost_yen_per_year=best.equipment_cost_yen_per_year,
-                utility_cost_yen_per_year=best.utility_cost_yen_per_year,
-                objective_yen_per_year=best.objective_yen_per_year,
-                diameter_m=best.diameter_m,
-                height_m=best.height_m,
-                ld_ratio=best.ld_ratio,
-                ld_warning=best.ld_warning,
+                valid=False,
+                invalid_reason=invalid_reason,
             )
+
+        ld_warning = " ld_warning" if best.ld_warning else ""
+        log(
+            f"[case] {case_index}/{total_cases} file={case_path.name} "
+            f"N={stage_count} best_feed={best.feed_stage} "
+            f"L/D={best.ld_ratio:.3f}{ld_warning} "
+            f"J={cost_to_oku_yen_per_year(best.objective_yen_per_year):.4f} "
+            f"equipment={cost_to_oku_yen_per_year(best.equipment_cost_yen_per_year):.4f} "
+            f"utility={cost_to_oku_yen_per_year(best.utility_cost_yen_per_year):.4f} "
+            "oku-yen/year valid"
+        )
+
+        return CaseSweepResult(
+            case_name=case_path.name,
+            case_path=str(case_path.resolve()),
+            stage_count=stage_count,
+            valid=True,
+            best_feed_stage=best.feed_stage,
+            equipment_cost_yen_per_year=best.equipment_cost_yen_per_year,
+            utility_cost_yen_per_year=best.utility_cost_yen_per_year,
+            objective_yen_per_year=best.objective_yen_per_year,
+            diameter_m=best.diameter_m,
+            height_m=best.height_m,
+            ld_ratio=best.ld_ratio,
+            ld_warning=best.ld_warning,
+        )
     except Exception as exc:
         log(f"[case] {case_index}/{total_cases} file={case_path.name} invalid: {exc}")
         return CaseSweepResult(
