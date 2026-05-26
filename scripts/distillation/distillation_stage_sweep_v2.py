@@ -16,9 +16,12 @@ J = 装置コスト + 用役コスト
 蒸留塔本体 + コンデンサ + リボイラを7年償却
 
 用役コスト:
-既存の製品冷却・EB recycle加熱
-+ 蒸留塔コンデンサ冷却用役
+蒸留塔コンデンサ冷却用役
 + 蒸留塔リボイラ加熱用役
+
+注意:
+段数最適化では蒸留塔単体に着目するため、
+製品冷却コストと EB recycle 加熱コストは評価関数に含めない。
 """
 
 from __future__ import annotations
@@ -49,14 +52,13 @@ from process_sim.separator.hysys_io import (
     iter_collection_items,
 )
 
-raise NotImplementedError("これは蒸留塔以外のコストも考えている(製品冷却やリサイクル加熱)のでv2を使ってください。")
 
 TargetTower = Literal["tower1", "tower2", "tower3"]
 GridLevel = Literal["coarse", "fine"]
 SweepDirection = Literal["base_lower", "upper"]
 T = TypeVar("T")
 
-TARGET_TOWER: TargetTower = "tower2"
+TARGET_TOWER: TargetTower = "tower1"
 GRID_LEVEL: GridLevel = "coarse"
 
 DETAILED_FEED_LOG = True
@@ -201,6 +203,38 @@ class ColumnHeatExchangerCost(BaseModel):
     reboiler_capital_cost_yen: float
 
 
+class ColumnCostBreakdown(BaseModel):
+    """蒸留塔単体評価のコスト内訳。"""
+
+    shell_cost_yen_per_year: float
+    condenser_equipment_cost_yen_per_year: float
+    reboiler_equipment_cost_yen_per_year: float
+    condenser_utility_cost_yen_per_year: float
+    reboiler_utility_cost_yen_per_year: float
+
+    @property
+    def equipment_cost_yen_per_year(self) -> float:
+        """蒸留塔本体・コンデンサ・リボイラの年間装置費を返す。"""
+        return (
+            self.shell_cost_yen_per_year
+            + self.condenser_equipment_cost_yen_per_year
+            + self.reboiler_equipment_cost_yen_per_year
+        )
+
+    @property
+    def utility_cost_yen_per_year(self) -> float:
+        """コンデンサ・リボイラの年間用役費を返す。"""
+        return (
+            self.condenser_utility_cost_yen_per_year
+            + self.reboiler_utility_cost_yen_per_year
+        )
+
+    @property
+    def objective_yen_per_year(self) -> float:
+        """蒸留塔単体評価関数を返す。"""
+        return self.equipment_cost_yen_per_year + self.utility_cost_yen_per_year
+
+
 class FeedStageResult(BaseModel):
     """feed 段 1 点の評価結果。"""
 
@@ -214,6 +248,11 @@ class FeedStageResult(BaseModel):
     equipment_cost_yen_per_year: float | None = None
     utility_cost_yen_per_year: float | None = None
     objective_yen_per_year: float | None = None
+    shell_cost_yen_per_year: float | None = None
+    condenser_equipment_cost_yen_per_year: float | None = None
+    reboiler_equipment_cost_yen_per_year: float | None = None
+    condenser_utility_cost_yen_per_year: float | None = None
+    reboiler_utility_cost_yen_per_year: float | None = None
     diameter_m: float | None = None
     height_m: float | None = None
     ld_ratio: float | None = None
@@ -238,6 +277,11 @@ class CaseSweepResult(BaseModel):
     equipment_cost_yen_per_year: float | None = None
     utility_cost_yen_per_year: float | None = None
     objective_yen_per_year: float | None = None
+    shell_cost_yen_per_year: float | None = None
+    condenser_equipment_cost_yen_per_year: float | None = None
+    reboiler_equipment_cost_yen_per_year: float | None = None
+    condenser_utility_cost_yen_per_year: float | None = None
+    reboiler_utility_cost_yen_per_year: float | None = None
     diameter_m: float | None = None
     height_m: float | None = None
     ld_ratio: float | None = None
@@ -1131,16 +1175,32 @@ def external_utility_cost_yen_per_year(flowsheet: Any, target_tower: TargetTower
     )
 
 
-def total_utility_cost_yen_per_year(
-    flowsheet: Any,
-    target_tower: TargetTower,
+def column_cost_breakdown_yen_per_year(
+    hydraulics: ColumnHydraulics,
     heat_exchanger: ColumnHeatExchangerCost,
-) -> float:
-    """外部用役と蒸留塔用役を合算する。"""
-    return external_utility_cost_yen_per_year(
-        flowsheet,
-        target_tower,
-    ) + column_utility_cost_yen_per_year(heat_exchanger)
+) -> ColumnCostBreakdown:
+    """蒸留塔単体評価用の年間コスト内訳を計算する。"""
+    shell_capital_cost_yen = column_shell_capital_cost_yen(
+        hydraulics.diameter_m,
+        hydraulics.height_m,
+    )
+    ## 工事費を考えて2.5倍としている
+
+    return ColumnCostBreakdown(
+        shell_cost_yen_per_year=2.5 * shell_capital_cost_yen / DEPRECIATION_YEARS,
+        condenser_equipment_cost_yen_per_year=(
+            2.5 * heat_exchanger.condenser_capital_cost_yen / DEPRECIATION_YEARS
+        ),
+        reboiler_equipment_cost_yen_per_year=(
+            2.5 * heat_exchanger.reboiler_capital_cost_yen / DEPRECIATION_YEARS
+        ),
+        condenser_utility_cost_yen_per_year=column_condenser_utility_cost_yen_per_year(
+            heat_exchanger
+        ),
+        reboiler_utility_cost_yen_per_year=column_reboiler_utility_cost_yen_per_year(
+            heat_exchanger
+        ),
+    )
 
 
 def tower1_constraint_reason(
@@ -1207,29 +1267,19 @@ def evaluate_feed_stage(
             f"Qreb={heat_exchanger.reboiler_duty_kw:.6g}",
         )
 
-        shell_capital_cost_yen = column_shell_capital_cost_yen(
-            hydraulics.diameter_m,
-            hydraulics.height_m,
-        )
-        equipment_cost_yen_per_year = (
-            shell_capital_cost_yen
-            + heat_exchanger.condenser_capital_cost_yen
-            + heat_exchanger.reboiler_capital_cost_yen
-        ) / DEPRECIATION_YEARS
-
-        log_step(case_name, feed_stage, "utility-start")
-        refs = fresh_column_refs(simulation_case, target_tower)
-        utility_cost_yen_per_year = total_utility_cost_yen_per_year(
-            flowsheet=refs.flowsheet,
-            target_tower=target_tower,
+        log_step(case_name, feed_stage, "cost-breakdown-start")
+        cost_breakdown = column_cost_breakdown_yen_per_year(
+            hydraulics=hydraulics,
             heat_exchanger=heat_exchanger,
         )
-        objective_yen_per_year = equipment_cost_yen_per_year + utility_cost_yen_per_year
+        equipment_cost_yen_per_year = cost_breakdown.equipment_cost_yen_per_year
+        utility_cost_yen_per_year = cost_breakdown.utility_cost_yen_per_year
+        objective_yen_per_year = cost_breakdown.objective_yen_per_year
 
         log_step(
             case_name,
             feed_stage,
-            "utility-done",
+            "cost-breakdown-done",
             f"equipment={cost_to_oku_yen_per_year(equipment_cost_yen_per_year):.4f} "
             f"utility={cost_to_oku_yen_per_year(utility_cost_yen_per_year):.4f} "
             f"J={cost_to_oku_yen_per_year(objective_yen_per_year):.4f} oku-yen/year",
@@ -1249,6 +1299,29 @@ def evaluate_feed_stage(
             equipment_cost_yen_per_year=equipment_cost_yen_per_year if valid else None,
             utility_cost_yen_per_year=utility_cost_yen_per_year if valid else None,
             objective_yen_per_year=objective_yen_per_year if valid else None,
+            shell_cost_yen_per_year=(
+                cost_breakdown.shell_cost_yen_per_year if valid else None
+            ),
+            condenser_equipment_cost_yen_per_year=(
+                cost_breakdown.condenser_equipment_cost_yen_per_year
+                if valid
+                else None
+            ),
+            reboiler_equipment_cost_yen_per_year=(
+                cost_breakdown.reboiler_equipment_cost_yen_per_year
+                if valid
+                else None
+            ),
+            condenser_utility_cost_yen_per_year=(
+                cost_breakdown.condenser_utility_cost_yen_per_year
+                if valid
+                else None
+            ),
+            reboiler_utility_cost_yen_per_year=(
+                cost_breakdown.reboiler_utility_cost_yen_per_year
+                if valid
+                else None
+            ),
             diameter_m=hydraulics.diameter_m,
             height_m=hydraulics.height_m,
             ld_ratio=hydraulics.ld_ratio,
@@ -1287,6 +1360,25 @@ def value_text(value: float | None) -> str:
     if value is None or not math.isfinite(value):
         return "nan"
     return f"{value:.3f}"
+
+
+def oku_text(value: float | None) -> str:
+    """円/year を億円/year のログ用文字列にする。"""
+    return f"{cost_to_oku_yen_per_year(value):.4f}"
+
+
+def cost_breakdown_text(result: FeedStageResult | CaseSweepResult) -> str:
+    """summary 用のコスト内訳文字列を返す。"""
+    return (
+        f"J={oku_text(result.objective_yen_per_year)} "
+        f"equipment={oku_text(result.equipment_cost_yen_per_year)} "
+        f"utility={oku_text(result.utility_cost_yen_per_year)} "
+        f"shell={oku_text(result.shell_cost_yen_per_year)} "
+        f"cond_eq={oku_text(result.condenser_equipment_cost_yen_per_year)} "
+        f"reb_eq={oku_text(result.reboiler_equipment_cost_yen_per_year)} "
+        f"cond_util={oku_text(result.condenser_utility_cost_yen_per_year)} "
+        f"reb_util={oku_text(result.reboiler_utility_cost_yen_per_year)}"
+    )
 
 
 def log_feed_result(result: FeedStageResult) -> None:
@@ -1504,10 +1596,10 @@ def sweep_case(
         log_summary(
             f"[case] {case_index}/{total_cases} file={case_path.name} "
             f"N={stage_count} best_feed={best.feed_stage} "
+            f"{cost_breakdown_text(best)} "
+            f"D={value_text(best.diameter_m)} "
+            f"H={value_text(best.height_m)} "
             f"L/D={best.ld_ratio:.3f}{ld_warning} "
-            f"equipment={cost_to_oku_yen_per_year(best.equipment_cost_yen_per_year):.4f} "
-            f"utility={cost_to_oku_yen_per_year(best.utility_cost_yen_per_year):.4f} "
-            f"J={cost_to_oku_yen_per_year(best.objective_yen_per_year):.4f} "
             "oku-yen/year valid"
         )
 
@@ -1520,6 +1612,17 @@ def sweep_case(
             equipment_cost_yen_per_year=best.equipment_cost_yen_per_year,
             utility_cost_yen_per_year=best.utility_cost_yen_per_year,
             objective_yen_per_year=best.objective_yen_per_year,
+            shell_cost_yen_per_year=best.shell_cost_yen_per_year,
+            condenser_equipment_cost_yen_per_year=(
+                best.condenser_equipment_cost_yen_per_year
+            ),
+            reboiler_equipment_cost_yen_per_year=(
+                best.reboiler_equipment_cost_yen_per_year
+            ),
+            condenser_utility_cost_yen_per_year=(
+                best.condenser_utility_cost_yen_per_year
+            ),
+            reboiler_utility_cost_yen_per_year=best.reboiler_utility_cost_yen_per_year,
             diameter_m=best.diameter_m,
             height_m=best.height_m,
             ld_ratio=best.ld_ratio,
@@ -1639,12 +1742,10 @@ def print_summary(
             f"file={result.case_name} "
             f"N={result.stage_count} "
             f"best_feed={result.best_feed_stage} "
+            f"{cost_breakdown_text(result)} "
             f"D={value_text(result.diameter_m)} "
             f"H={value_text(result.height_m)} "
             f"L/D={value_text(result.ld_ratio)}{ld_warning} "
-            f"equipment={cost_to_oku_yen_per_year(result.equipment_cost_yen_per_year):.4f} "
-            f"utility={cost_to_oku_yen_per_year(result.utility_cost_yen_per_year):.4f} "
-            f"J={cost_to_oku_yen_per_year(result.objective_yen_per_year):.4f} "
             "oku-yen/year"
         )
 
@@ -1655,12 +1756,10 @@ def print_summary(
         f"file={best.case_name} "
         f"best_N={best.stage_count} "
         f"best_feed={best.best_feed_stage} "
+        f"{cost_breakdown_text(best)} "
         f"D={value_text(best.diameter_m)} "
         f"H={value_text(best.height_m)} "
         f"L/D={value_text(best.ld_ratio)}{ld_warning} "
-        f"equipment={cost_to_oku_yen_per_year(best.equipment_cost_yen_per_year):.4f} "
-        f"utility={cost_to_oku_yen_per_year(best.utility_cost_yen_per_year):.4f} "
-        f"J={cost_to_oku_yen_per_year(best.objective_yen_per_year):.4f} "
         f"oku-yen/year figure={figure_path}"
     )
 
@@ -1676,7 +1775,8 @@ def main() -> None:
     log_summary(
         f"[start] tower={TARGET_TOWER} grid={GRID_LEVEL} "
         f"cases={len(case_paths)} visible_hysys={VISIBLE_HYSYS} "
-        f"detailed_feed_log={DETAILED_FEED_LOG}"
+        f"detailed_feed_log={DETAILED_FEED_LOG} "
+        "cost_basis=column-only"
     )
     log_summary(f"[start] hysys_dir={HYSYS_DIR / TARGET_TOWER / GRID_LEVEL}")
 

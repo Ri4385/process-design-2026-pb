@@ -628,6 +628,10 @@ scripts/distillation/media/tower3_cost_summary.png
 
 ## ログ
 
+標準出力ログは、feed 段探索中の進行確認にも使う。
+
+ファイルログは `logs/distillation_stage_sweep.log` に追記する。ファイルログには、実行条件、case ごとの最良 feed 段、全体 summary だけを残し、feed 段ごとの探索ログは含めない。
+
 ログは `DETAILED_FEED_LOG = False` の場合、case 1 つにつき 1 回から 2 回程度に抑える。
 
 例は次の通りである。
