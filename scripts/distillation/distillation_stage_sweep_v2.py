@@ -133,7 +133,7 @@ TOWER1_MAX_BOTTOM_TEMPERATURE_C = 100.0
 HYSYS_READ_RETRY_COUNT = 5
 HYSYS_READ_RETRY_WAIT_S = 0.8
 
-FEED_TIMEOUT_S = 10.0
+FEED_TIMEOUT_S = 8.0
 COLUMN_POST_SOLVE_WAIT_S = 1.0
 
 STOP_DIRECTION_ON_UNSTABLE_INVALID = True
@@ -458,6 +458,15 @@ def wait_for_hysys_calculation_limited(
         except Exception:
             pass
 
+    for method_name in ("Solve", "Run"):
+        method = getattr(solver, method_name, None)
+        if callable(method):
+            try:
+                method()
+                break
+            except Exception:
+                pass
+
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         is_solving = getattr(solver, "IsSolving", None)
@@ -577,12 +586,25 @@ def solve_column_after_feed_change(
 
     log_step(case_name, feed_stage, "column-solve-start")
 
+    call_com_method_if_exists(
+        refs.column_flowsheet,
+        ("Run", "Solve", "Calculate", "Recalculate"),
+    )
+    call_com_method_if_exists(
+        refs.tower,
+        ("Run", "Solve", "Calculate", "Recalculate"),
+    )
+
     column_solver = getattr(refs.column_flowsheet, "Solver", None)
     if column_solver is not None:
         try:
             column_solver.CanSolve = True
         except Exception:
             pass
+        call_com_method_if_exists(
+            column_solver,
+            ("Solve", "Run", "Calculate", "Recalculate"),
+        )
 
     tower_solver = getattr(refs.tower, "Solver", None)
     if tower_solver is not None:
@@ -590,6 +612,10 @@ def solve_column_after_feed_change(
             tower_solver.CanSolve = True
         except Exception:
             pass
+        call_com_method_if_exists(
+            tower_solver,
+            ("Solve", "Run", "Calculate", "Recalculate"),
+        )
 
     wait_for_hysys_calculation_limited(simulation_case, FEED_TIMEOUT_S)
     time.sleep(COLUMN_POST_SOLVE_WAIT_S)
