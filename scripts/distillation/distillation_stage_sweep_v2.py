@@ -27,6 +27,7 @@ J = 装置コスト + 用役コスト
 from __future__ import annotations
 
 import math
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,8 @@ from typing import Any, Callable, Literal, Sequence, TypeVar
 
 import japanize_matplotlib  # noqa: F401
 import matplotlib.pyplot as plt
+import pythoncom
+import win32com.client
 from pydantic import BaseModel, ConfigDict
 
 from process_sim.plant.const import HOURS_PER_YEAR, HYSYS_INVALID_SENTINEL
@@ -58,7 +61,7 @@ GridLevel = Literal["coarse", "fine"]
 SweepDirection = Literal["base_lower", "upper"]
 T = TypeVar("T")
 
-TARGET_TOWER: TargetTower = "tower1"
+TARGET_TOWER: TargetTower = "tower3"
 GRID_LEVEL: GridLevel = "coarse"
 
 DETAILED_FEED_LOG = True
@@ -133,7 +136,7 @@ TOWER1_MAX_BOTTOM_TEMPERATURE_C = 100.0
 HYSYS_READ_RETRY_COUNT = 5
 HYSYS_READ_RETRY_WAIT_S = 0.8
 
-FEED_TIMEOUT_S = 8.0
+FEED_TIMEOUT_S = 10.0
 COLUMN_POST_SOLVE_WAIT_S = 1.0
 
 STOP_DIRECTION_ON_UNSTABLE_INVALID = True
@@ -431,6 +434,132 @@ def call_com_method_if_exists(obj: Any, method_names: Sequence[str]) -> bool:
     return False
 
 
+class ComTimeoutWatchdog:
+    """COM 呼び出しが返らない場合に別 thread から solver 停止を試みる。"""
+
+    def __init__(
+        self,
+        simulation_case: Any,
+        timeout_s: float,
+        label: str,
+    ) -> None:
+        self.timeout_s = timeout_s
+        self.label = label
+        self._cancelled = threading.Event()
+        self._fired = threading.Event()
+        self._dispatch_stream: Any | None = None
+        self._thread: threading.Thread | None = None
+
+        ole_object = getattr(simulation_case, "_oleobj_", None)
+        if ole_object is not None:
+            self._dispatch_stream = pythoncom.CoMarshalInterThreadInterfaceInStream(
+                pythoncom.IID_IDispatch,
+                ole_object,
+            )
+
+    @property
+    def fired(self) -> bool:
+        """timeout 停止を試みたかを返す。"""
+        return self._fired.is_set()
+
+    def start(self) -> None:
+        """watchdog thread を開始する。"""
+        if self._dispatch_stream is None:
+            return
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"hysys-timeout-watchdog-{self.label}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def cancel(self) -> None:
+        """watchdog を停止する。"""
+        self._cancelled.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+
+    def _run(self) -> None:
+        """timeout 後に HYSYS solver 停止を試みる。"""
+        if self._cancelled.wait(self.timeout_s):
+            return
+
+        self._fired.set()
+        pythoncom.CoInitialize()
+        try:
+            dispatch = pythoncom.CoGetInterfaceAndReleaseStream(
+                self._dispatch_stream,
+                pythoncom.IID_IDispatch,
+            )
+            simulation_case = win32com.client.Dispatch(dispatch)
+            stop_solver(simulation_case)
+            log(f"[timeout-watchdog] label={self.label} stopped solver")
+        except Exception as exc:
+            log(f"[timeout-watchdog] label={self.label} error={exc}")
+        finally:
+            self._dispatch_stream = None
+            pythoncom.CoUninitialize()
+
+
+def call_com_method_with_timeout(
+    obj: Any,
+    method_name: str,
+    simulation_case: Any,
+    timeout_s: float,
+    label: str,
+) -> bool:
+    """COM method を呼び、timeout 時は別 thread から solver 停止を試みる。"""
+    method = getattr(obj, method_name, None)
+    if not callable(method):
+        return False
+
+    watchdog = ComTimeoutWatchdog(
+        simulation_case=simulation_case,
+        timeout_s=timeout_s,
+        label=f"{label}.{method_name}",
+    )
+    started_at = time.monotonic()
+    watchdog.start()
+    try:
+        method()
+    finally:
+        watchdog.cancel()
+
+    elapsed_s = time.monotonic() - started_at
+    if watchdog.fired or elapsed_s >= timeout_s:
+        stop_solver(simulation_case)
+        raise TimeoutError(
+            f"HYSYS COM method timeout after {timeout_s:.1f} s: "
+            f"{label}.{method_name}"
+        )
+    return True
+
+
+def call_com_method_if_exists_limited(
+    obj: Any,
+    method_names: Sequence[str],
+    simulation_case: Any,
+    timeout_s: float,
+    label: str,
+) -> bool:
+    """COM object の計算系 method を timeout 付きで順に呼ぶ。"""
+    for method_name in method_names:
+        try:
+            if call_com_method_with_timeout(
+                obj=obj,
+                method_name=method_name,
+                simulation_case=simulation_case,
+                timeout_s=timeout_s,
+                label=label,
+            ):
+                return True
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            log(f"[column-solve] method={method_name} error={exc}")
+    return False
+
+
 def stop_solver(simulation_case: Any) -> None:
     """HYSYS solver を止める。"""
     solver = getattr(simulation_case, "Solver", None)
@@ -458,14 +587,13 @@ def wait_for_hysys_calculation_limited(
         except Exception:
             pass
 
-    for method_name in ("Solve", "Run"):
-        method = getattr(solver, method_name, None)
-        if callable(method):
-            try:
-                method()
-                break
-            except Exception:
-                pass
+    call_com_method_if_exists_limited(
+        obj=solver,
+        method_names=("Solve", "Run"),
+        simulation_case=simulation_case,
+        timeout_s=timeout_s,
+        label="case-solver",
+    )
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -586,13 +714,19 @@ def solve_column_after_feed_change(
 
     log_step(case_name, feed_stage, "column-solve-start")
 
-    call_com_method_if_exists(
+    call_com_method_if_exists_limited(
         refs.column_flowsheet,
         ("Run", "Solve", "Calculate", "Recalculate"),
+        simulation_case=simulation_case,
+        timeout_s=FEED_TIMEOUT_S,
+        label="column-flowsheet",
     )
-    call_com_method_if_exists(
+    call_com_method_if_exists_limited(
         refs.tower,
         ("Run", "Solve", "Calculate", "Recalculate"),
+        simulation_case=simulation_case,
+        timeout_s=FEED_TIMEOUT_S,
+        label="tower",
     )
 
     column_solver = getattr(refs.column_flowsheet, "Solver", None)
@@ -601,9 +735,12 @@ def solve_column_after_feed_change(
             column_solver.CanSolve = True
         except Exception:
             pass
-        call_com_method_if_exists(
+        call_com_method_if_exists_limited(
             column_solver,
             ("Solve", "Run", "Calculate", "Recalculate"),
+            simulation_case=simulation_case,
+            timeout_s=FEED_TIMEOUT_S,
+            label="column-solver",
         )
 
     tower_solver = getattr(refs.tower, "Solver", None)
@@ -612,9 +749,12 @@ def solve_column_after_feed_change(
             tower_solver.CanSolve = True
         except Exception:
             pass
-        call_com_method_if_exists(
+        call_com_method_if_exists_limited(
             tower_solver,
             ("Solve", "Run", "Calculate", "Recalculate"),
+            simulation_case=simulation_case,
+            timeout_s=FEED_TIMEOUT_S,
+            label="tower-solver",
         )
 
     wait_for_hysys_calculation_limited(simulation_case, FEED_TIMEOUT_S)
