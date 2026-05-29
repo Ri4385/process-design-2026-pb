@@ -68,7 +68,7 @@ GridLevel = Literal["coarse", "fine"]
 SweepDirection = Literal["base_lower", "upper"]
 T = TypeVar("T")
 
-TARGET_TOWER: TargetTower = "tower1"
+TARGET_TOWER: TargetTower = "tower3"
 GRID_LEVEL: GridLevel = "coarse"
 
 DETAILED_FEED_LOG = True
@@ -145,7 +145,7 @@ HYSYS_READ_RETRY_WAIT_S = 0.8
 
 FEED_TIMEOUT_S = 10.0
 COLUMN_POST_SOLVE_WAIT_S = 1.0
-DIRECTION_TIMEOUT_PER_FEED_S = 2.0
+DIRECTION_TIMEOUT_PER_FEED_S = 5.0
 
 STOP_DIRECTION_ON_UNSTABLE_INVALID = True
 UNSTABLE_INVALID_KEYWORDS: tuple[str, ...] = (
