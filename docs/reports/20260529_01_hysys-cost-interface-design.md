@@ -36,7 +36,14 @@ src/process_sim/
     hysys_io.py              # HYSYS COM 接続、stream/operation/energy/spreadsheet の汎用読み取り
     equipment.py             # 読み取った後の分離系機器モデル
     hysys_equipment_reference.py # HYSYS 上の参照先定義
-    equipment_reader.py      # HYSYS から equipment model に変換
+    equipment_log.py         # equipment model の読み取り確認用標準出力を整形
+    equipment_reader/
+      __init__.py            # docstring のみ
+      common.py              # HYSYS COM 読み取り共通 helper
+      process_equipment.py   # ProcessEquipment 全体の組み立て
+      distillation.py        # 蒸留塔 reader と塔径・塔高計算
+      decanter.py            # デカンター spreadsheet 寸法の読み取り
+      heat_exchanger.py      # cooler / heater operation の読み取り
   plant/
     economics.py             # 既存互換の経済計算関数。後で薄くする
     cost/
@@ -45,6 +52,8 @@ src/process_sim/
       utility.py             # 用役費
       revenue.py             # 製品収入、原料費
       objective.py           # 評価関数
+scripts/
+  read_hysys_equipment.py    # 既定 HYSYS case から equipment model を読み、標準出力へ表示
 docs/
   cost.md                    # コスト式と単価の根拠
   reports/
@@ -66,9 +75,20 @@ docs/
   - `T-1`、`TQ-11`、`CQ-1`、`SPRDSHT-1` など、HYSYS 上の参照先を定義する。
   - 参照先の model と、固定 HYSYS ケースに対するインスタンス定義を同じファイルに置く。
   - コスト計算法や費目名は持たない。
-- `separator/equipment_reader.py`
+- `separator/equipment_reader/`
   - `hysys_io.py` と `hysys_equipment_reference.py` を使い、HYSYS 由来の値を `equipment.py` のモデルへ変換する。
-  - COM オブジェクトは外へ出さない。
+  - `process_equipment.py` は `ProcessEquipment` 全体を組み立てる。
+  - `distillation.py` は蒸留塔の読み取り、塔径、塔高計算を担当する。
+  - `decanter.py` は `SPRDSHT-1`、`SPRDSHT-2` からデカンター寸法を読む。
+  - `heat_exchanger.py` は `C-*`、`H-*` operation から duty と入口出口温度を読む。
+  - `common.py` は必須属性取得や数値配列取得などの小さい共通 helper だけを持つ。
+  - COM オブジェクトは package の外へ出さない。
+- `separator/equipment_log.py`
+  - `ProcessEquipment` 全体の読み取り状況を標準出力向けに整形する。
+  - 実装済みの蒸留塔、デカンター、冷却器、加熱器は詳細を出し、未実装の機器種別は件数で確認する。
+- `scripts/read_hysys_equipment.py`
+  - `plant/const.py` の `DEFAULT_HYSYS_CASE_PATH` を使って HYSYS case を開く。
+  - CLI 入口、コマンドライン引数、ファイル出力は持たない。
 - `plant/cost/`
   - `separator/equipment.py` のモデルを受け取り、機器費、用役費、収入、評価関数を計算する。
   - HYSYS COM の参照先は知らない。
@@ -193,10 +213,25 @@ HYSYS から equipment model を正しく作れているか確認するため、
 
 ```text
 src/process_sim/separator/
-  equipment_log.py     # equipment model の読み取り結果を日本語で整形する
+  equipment_log.py     # ProcessEquipment の読み取り結果を日本語で整形する
+  equipment_reader/
+    process_equipment.py # ProcessEquipment を組み立てる
+    distillation.py      # 蒸留塔のみを読む
+    decanter.py          # デカンター寸法を読む
+    heat_exchanger.py    # 冷却器、加熱器を読む
+scripts/
+  read_hysys_equipment.py # 既定 case を読み、標準出力へ表示する
 ```
 
-この module は、コスト計算や通常実行で常に出すログではなく、実装確認用の診断出力として使う。例えば、蒸留塔であれば、段数、feed 段、塔径、高さ、還流比、塔頂温度、塔底温度、condenser duty、reboiler duty をまとめて表示する。
+この module は、コスト計算や通常実行で常に出すログではなく、実装確認用の診断出力として使う。ファイルには出力せず、標準出力だけに表示する。対象は `DistillationColumn` 単体ではなく `ProcessEquipment` 全体である。現在は、`distillation_columns`、`decanters`、`coolers`、`heaters` を読む。`pumps`、`compressors` は空 tuple として件数だけ確認する。
+
+実行は次のように行う。
+
+```powershell
+uv run python scripts/read_hysys_equipment.py
+```
+
+case path は `src/process_sim/plant/const.py` の `DEFAULT_HYSYS_CASE_PATH` を使い、script 側では指定しない。
 
 通常実行時の logging 方針は、コスト計算本体の実装時に別途決める。
 
@@ -228,6 +263,9 @@ Heat integration は、温度区間付きの熱流リストが必要になる。
 - リボイラ、コンデンサの `ΔT_lm` は model 定義と HYSYS 読み取りの段階では扱わない。熱交換器面積とコスト式を実装する段階で決める。
 - Heat integration 前の評価関数はまだ作らない。
 - `equipment_log.py` は `separator/` に置く。
+- equipment 読み取り確認用 script は `scripts/read_hysys_equipment.py` に置く。`scripts/distillation/` は部分最適化用であり、今回の入口は置かない。
+- equipment 読み取り確認用 script は CLI 化しない。引数も持たせず、case path は `plant/const.py` から読む。
+- 読み取り確認結果は `logs/` などへ保存しない。標準出力だけに出す。
 
 ## 未確定要素
 
