@@ -626,19 +626,6 @@ def apply_feed_stage(
     return actual_stage
 
 
-def directional_feed_stage_candidates(
-    stage_count: int,
-    base_stage: int | None,
-) -> tuple[list[int], list[int]]:
-    """下方向探索用と上方向探索用の feed 段候補を返す。"""
-    if base_stage is None or base_stage < 1 or base_stage > stage_count:
-        return list(range(1, stage_count + 1)), []
-
-    base_lower = [base_stage, *range(base_stage - 1, 0, -1)]
-    upper = list(range(base_stage + 1, stage_count + 1))
-    return base_lower, upper
-
-
 def column_height_m(stage_count: int) -> float:
     """段数から塔高さを計算する。"""
     return (
