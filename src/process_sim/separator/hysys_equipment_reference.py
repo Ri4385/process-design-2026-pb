@@ -33,12 +33,14 @@ class DecanterReference(HysysEquipmentReference):
 class CoolerReference(HysysEquipmentReference):
     """HYSYS 上の冷却器参照先。"""
 
+    operation_name: str
     energy_name: str
 
 
 class HeaterReference(HysysEquipmentReference):
     """HYSYS 上の加熱器参照先。"""
 
+    operation_name: str
     energy_name: str
 
 
@@ -105,26 +107,31 @@ COOLERS: tuple[CoolerReference, ...] = (
     CoolerReference(
         id="decanter_1_cooler",
         display_name="デカンター1基目冷却器",
+        operation_name="C-1",
         energy_name="CQ-1",
     ),
     CoolerReference(
         id="decanter_2_cooler",
         display_name="デカンター2基目冷却器",
+        operation_name="C-2",
         energy_name="CQ-2",
     ),
     CoolerReference(
         id="sm_product_cooler",
         display_name="SM製品冷却器",
+        operation_name="C-3",
         energy_name="CQ-3",
     ),
     CoolerReference(
         id="benzene_product_cooler",
         display_name="BZ製品冷却器",
+        operation_name="C-4",
         energy_name="CQ-4",
     ),
     CoolerReference(
         id="toluene_product_cooler",
         display_name="TL製品冷却器",
+        operation_name="C-5",
         energy_name="CQ-5",
     ),
 )
@@ -133,16 +140,19 @@ HEATERS: tuple[HeaterReference, ...] = (
     HeaterReference(
         id="steam_inlet_heater",
         display_name="入口加熱 steam",
+        operation_name="H-1",
         energy_name="E-heat-water",
     ),
     HeaterReference(
         id="eb_inlet_heater",
         display_name="入口加熱 EB",
+        operation_name="H-2",
         energy_name="E-heat-EB",
     ),
     HeaterReference(
         id="reactor_trim_heater",
         display_name="反応器前 trim heater",
+        operation_name="H-3",
         energy_name="QE-2",
     ),
 )
