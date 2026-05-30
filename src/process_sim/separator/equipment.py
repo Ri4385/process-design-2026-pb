@@ -30,7 +30,7 @@ class DistillationColumn(SeparatorEquipment):
     reboiler_energy_name: str
     reboiler_duty_kw: float
     max_vapor_load_stage: int
-    max_vapor_mass_flow_kg_h: float
+    max_vapor_mass_flow_kg_s: float
 
 
 class Decanter(SeparatorEquipment):

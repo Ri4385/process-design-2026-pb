@@ -38,7 +38,7 @@ class ColumnHydraulics(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     design_stage: int
-    vapor_mass_flow_kg_h: float
+    vapor_mass_flow_kg_s: float
     diameter_m: float
 
 
@@ -82,7 +82,7 @@ def read_distillation_column(flowsheet: Any, reference: DistillationColumnRefere
         reboiler_energy_name=reference.reboiler_energy_name,
         reboiler_duty_kw=heat_flow_kw(reboiler, reference.reboiler_energy_name),
         max_vapor_load_stage=hydraulics.design_stage,
-        max_vapor_mass_flow_kg_h=hydraulics.vapor_mass_flow_kg_h,
+        max_vapor_mass_flow_kg_s=hydraulics.vapor_mass_flow_kg_s,
     )
 
 
@@ -163,68 +163,68 @@ def column_hydraulics(column_flowsheet: Any, stage_count: int, label: str) -> Co
         raise RuntimeError(f"{label} の profile 配列が空です: lengths={profile_lengths}")
 
     design_index = design_stage_index(vapor_mass_flows[:min_length], label)
-    vapor_mass_flow_kg_h = required_number(
+    vapor_mass_flow_kg_s = required_number(
         vapor_mass_flows[design_index],
         f"{label} vapor mass flow",
     )
-    liquid_mass_flow_kg_h = required_number(
+    liquid_mass_flow_kg_s = required_number(
         liquid_mass_flows[design_index],
         f"{label} liquid mass flow",
     )
-    vapor_molar_flow_kmol_h = required_number(
+    vapor_molar_flow_kmol_s = required_number(
         vapor_molar_flows[design_index],
         f"{label} vapor molar flow",
     )
     temperature_c = required_number(temperatures[design_index], f"{label} temperature")
     pressure_kpa = required_number(pressures[design_index], f"{label} pressure")
-    liquid_volume_flow_m3_h = required_number(
+    liquid_volume_flow_m3_s = required_number(
         liquid_volume_flows[design_index],
         f"{label} liquid volume flow",
     )
 
     if pressure_kpa <= 0.0:
         raise RuntimeError(f"{label} pressure が 0 以下です: {pressure_kpa}")
-    if liquid_volume_flow_m3_h <= 0.0:
+    if liquid_volume_flow_m3_s <= 0.0:
         raise RuntimeError(
-            f"{label} liquid volume flow が 0 以下です: {liquid_volume_flow_m3_h}"
+            f"{label} liquid volume flow が 0 以下です: {liquid_volume_flow_m3_s}"
         )
 
-    vapor_volume_flow_m3_h = (
-        vapor_molar_flow_kmol_h
+    vapor_volume_flow_m3_s = (
+        vapor_molar_flow_kmol_s
         * GAS_CONSTANT_PA_M3_PER_KMOL_K
         * (273.15 + temperature_c)
         / (pressure_kpa * 1000.0)
     )
-    if vapor_volume_flow_m3_h <= 0.0:
+    if vapor_volume_flow_m3_s <= 0.0:
         raise RuntimeError(
-            f"{label} vapor volume flow が 0 以下です: {vapor_volume_flow_m3_h}"
+            f"{label} vapor volume flow が 0 以下です: {vapor_volume_flow_m3_s}"
         )
 
-    vapor_density_kg_m3 = vapor_mass_flow_kg_h / vapor_volume_flow_m3_h
-    liquid_density_kg_m3 = liquid_mass_flow_kg_h / liquid_volume_flow_m3_h
+    vapor_density_kg_m3 = vapor_mass_flow_kg_s / vapor_volume_flow_m3_s
+    liquid_density_kg_m3 = liquid_mass_flow_kg_s / liquid_volume_flow_m3_s
     if liquid_density_kg_m3 <= vapor_density_kg_m3:
         raise RuntimeError(
             f"{label} 液密度 <= 蒸気密度です: "
             f"rho_l={liquid_density_kg_m3}, rho_v={vapor_density_kg_m3}"
         )
 
-    allowable_mass_velocity_kg_m2_h = (
+    allowable_mass_velocity_kg_m2_s = (
         SOUDFERS_BROWN_SF
         * SOUDFERS_BROWN_K_M_S
         * math.sqrt(vapor_density_kg_m3 * (liquid_density_kg_m3 - vapor_density_kg_m3))
     )
-    if allowable_mass_velocity_kg_m2_h <= 0.0:
+    if allowable_mass_velocity_kg_m2_s <= 0.0:
         raise RuntimeError(f"{label} allowable mass velocity が 0 以下です")
 
     diameter_m = math.sqrt(
-        4.0 * vapor_mass_flow_kg_h / (math.pi * allowable_mass_velocity_kg_m2_h)
+        4.0 * vapor_mass_flow_kg_s / (math.pi * allowable_mass_velocity_kg_m2_s)
     )
     if column_height_m(stage_count) / diameter_m <= 0.0:
         raise RuntimeError(f"{label} L/D を計算できませんでした")
 
     return ColumnHydraulics(
         design_stage=design_index + 1,
-        vapor_mass_flow_kg_h=vapor_mass_flow_kg_h,
+        vapor_mass_flow_kg_s=vapor_mass_flow_kg_s,
         diameter_m=diameter_m,
     )
 

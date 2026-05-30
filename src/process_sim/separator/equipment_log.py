@@ -158,5 +158,5 @@ def format_distillation_column_lines(column: DistillationColumn) -> list[str]:
             f"duty {column.reboiler_duty_kw:.3f} kW"
         ),
         f"- 最大蒸気負荷段: {column.max_vapor_load_stage}",
-        f"- 最大蒸気質量流量: {column.max_vapor_mass_flow_kg_h:.3f}",
+        f"- 最大蒸気質量流量: {column.max_vapor_mass_flow_kg_s:.3f} kg/s",
     ]
