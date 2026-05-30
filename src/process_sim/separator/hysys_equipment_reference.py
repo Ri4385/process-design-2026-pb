@@ -47,12 +47,14 @@ class HeaterReference(HysysEquipmentReference):
 class PumpReference(HysysEquipmentReference):
     """HYSYS 上のポンプ参照先。"""
 
+    operation_name: str
     energy_name: str
 
 
 class CompressorReference(HysysEquipmentReference):
     """HYSYS 上のコンプレッサー参照先。"""
 
+    operation_name: str
     energy_name: str
 
 
@@ -140,13 +142,13 @@ HEATERS: tuple[HeaterReference, ...] = (
     HeaterReference(
         id="steam_inlet_heater",
         display_name="入口加熱 steam",
-        operation_name="H-1",
+        operation_name="H-2",
         energy_name="E-heat-water",
     ),
     HeaterReference(
         id="eb_inlet_heater",
         display_name="入口加熱 EB",
-        operation_name="H-2",
+        operation_name="H-1",
         energy_name="E-heat-EB",
     ),
     HeaterReference(
@@ -161,21 +163,25 @@ PUMPS: tuple[PumpReference, ...] = (
     PumpReference(
         id="water_inlet_pump",
         display_name="入口加圧 ポンプ水",
+        operation_name="P-2",
         energy_name="PQ-2",
     ),
     PumpReference(
         id="eb_inlet_pump",
         display_name="入口加圧 ポンプEB",
+        operation_name="P-1",
         energy_name="PQ-1",
     ),
     PumpReference(
         id="sm_column_outlet_pump",
         display_name="SM分離塔後 ポンプ",
+        operation_name="P-3",
         energy_name="PQ-3",
     ),
     PumpReference(
         id="sm_product_pump",
         display_name="製品加圧ポンプ SM",
+        operation_name="P-4",
         energy_name="PQ-4",
     ),
 )
@@ -184,6 +190,7 @@ COMPRESSORS: tuple[CompressorReference, ...] = (
     CompressorReference(
         id="offgas_compressor",
         display_name="SM分離塔後 排ガスコンプレッサー",
+        operation_name="K-2",
         energy_name="KQ-2",
     ),
 )
