@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from process_sim.separator.equipment import (
     Cooler,
+    Compressor,
     Decanter,
     DistillationColumn,
     Heater,
     ProcessEquipment,
+    Pump,
 )
 
 
@@ -63,6 +65,24 @@ def format_process_equipment_log(equipment: ProcessEquipment) -> str:
         lines.extend(format_distillation_column_lines(column))
         lines.append("")
 
+    lines.append("ポンプ")
+    if equipment.pumps:
+        for pump in equipment.pumps:
+            lines.extend(format_pump_lines(pump))
+            lines.append("")
+    else:
+        lines.append("- 読み取り結果なし")
+        lines.append("")
+
+    lines.append("コンプレッサー")
+    if equipment.compressors:
+        for compressor in equipment.compressors:
+            lines.extend(format_compressor_lines(compressor))
+            lines.append("")
+    else:
+        lines.append("- 読み取り結果なし")
+        lines.append("")
+
     return "\n".join(lines).rstrip()
 
 
@@ -96,6 +116,24 @@ def format_heater_lines(heater: Heater) -> list[str]:
         f"- duty: {heater.duty_kw:.3f} kW",
         f"- 入口温度: {heater.inlet_temperature_c:.3f} degC",
         f"- 出口温度: {heater.outlet_temperature_c:.3f} degC",
+    ]
+
+
+def format_pump_lines(pump: Pump) -> list[str]:
+    """ポンプ1基の読み取り結果を整形する。"""
+    return [
+        f"{pump.display_name} ({pump.energy_name})",
+        f"- id: {pump.id}",
+        f"- power: {pump.power_kw:.3f} kW",
+    ]
+
+
+def format_compressor_lines(compressor: Compressor) -> list[str]:
+    """コンプレッサー1基の読み取り結果を整形する。"""
+    return [
+        f"{compressor.display_name} ({compressor.energy_name})",
+        f"- id: {compressor.id}",
+        f"- power: {compressor.power_kw:.3f} kW",
     ]
 
 
