@@ -160,7 +160,7 @@ class DistillationColumn(BaseModel):
 | 反応器機器費(反応器の台数分) | Python実装 |  |  |
 | 反応器の熱交換器 装置費 | Python実装 |  |  |
 | 反応器 熱交換器　用役費 | Python実装 |  |  |
-| デカンター 装置費 | SPRDSHT-1（デカンター1基目） SPRDSHT-2（デカンター2基目） |  | A2：半径 A3：長さ |
+| デカンター 装置費 | SPRDSHT-1（デカンター1基目） SPRDSHT-2（デカンター2基目） |  | A2：直径 A3：長さ |
 | デカンター 冷却用役費 |  | CQ-1 CQ-2 | CQ-n：n基目 |
 | デカンター 冷却熱交換器装置費 |  |  |  |
 | SM分離塔前 バルブ減圧 | VLV-1-2 VLV-2 |  | コスト不明→圧力によるコストはなさそう バルブ自体の装置コストは無視？ \[7\] 貯槽、バルブ、配管、ポンプ、電気・計装、建屋など \[1\]～\[6\]までの機器費合計の1.0倍とする。これで最後にするから無視でよい？ |
@@ -260,7 +260,7 @@ Heat integration は、温度区間付きの熱流リストが必要になる。
 - 第一段階では、最終的に表の全項目を読む前提にする。ただし作業は、まず model 定義、次に HYSYS 読み取り実装の 2 回に分ける。
 - 現時点では、`hysys_io.py` から機器読み取り用の低レベル関数を分離しない。まずは `equipment.py`、`hysys_equipment_reference.py`、`equipment_reader.py` の 3 file 追加を考える。
 - `hysys_equipment_reference.py` は、reference model と固定 HYSYS ケースに対するインスタンス定義を同居させる。HYSYS model は固定済みのため、このファイルをさらに分割する予定はない。
-- デカンターの `SPRDSHT-1`, `SPRDSHT-2` は spreadsheet cell から半径と長さを読む。実装時には、既存の `scripts/distillation/` や関連 script の HYSYS 読み取り方法を参照する可能性がある。
+- デカンターの `SPRDSHT-1`, `SPRDSHT-2` は spreadsheet cell から直径と長さを読む。実装時には、既存の `scripts/distillation/` や関連 script の HYSYS 読み取り方法を参照する可能性がある。
 - バルブは個別機器費を無視し、⑦の一括費用に含める。
 - ストリッパーコンデンサ、ストリッパーリボイラは今回の cost scope から外す。
 - リボイラ、コンデンサの `ΔT_lm` は model 定義と HYSYS 読み取りの段階では扱わない。熱交換器面積とコスト式を実装する段階で決める。
