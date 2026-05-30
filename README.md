@@ -40,8 +40,6 @@
 - 設計判断と作業記録
 - 最終レポート用の技術的根拠
 
-`pptx` は原則として本リポジトリで直接管理しない。必要であれば、スライド案を `md` で残す。
-
 ## 現在の方針
 
 - 反応器側は主に Python で扱う想定である。
@@ -57,8 +55,9 @@
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
 - production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
 - radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
-- HYSYS ケースの調査用スクリプトは `scripts/` にある。
-- 分離機は HYSYS ケース側で構築中だが、Python 側には HYSYS I/O 用のモジュールがある。
+- HYSYS ケースの調査用スクリプトと部分最適化スクリプトは `scripts/` にある。
+- 分離機は HYSYS ケース側に構築されており、Python 側には HYSYS I/O と機器読み取り用のモジュールがある。
+- 既定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、確認結果を標準出力へ表示できる。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
 - 経済収支計算は暫定実装があり、今後整理する対象である。
 
@@ -67,7 +66,7 @@
 - コンテスト課題: `data/chem_contest.md`
 - 過去レポート: `data/report_md/~`, 
 
-コンテスト課題は主要な参考資料だが、最終的な設計判断は授業の目的と実際の検討内容を優先する。
+コンテスト課題は主要な参考資料とする。
 
 ## 開発環境
 
@@ -77,8 +76,6 @@
 - パッケージ管理: `uv`
 - 静的解析: `ruff`
 - テスト: `pytest`
-
-HYSYS との互換性の都合で Python バージョンを調整する可能性がある。
 
 ## セットアップ
 
@@ -103,12 +100,16 @@ scripts/
   axial-radial-comparison/            # axial/radial 比較スクリプト
   check_hysys_connection.py           # HYSYS 接続確認
   decanter/                           # デカンター部分最適化
+  distillation/                       # 蒸留塔部分最適化
+  reactor-profile/                    # 反応器プロファイル出力
+  reactor_sensitivity_analysis/       # 反応器感度分析
   export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
-  reactor-profile/                    # 反応器プロファイル出力
+  read_hysys_equipment.py             # 既定 HYSYS case の機器読み取り確認
   run_fixed_plant_convergence.py      # 固定 feed で plant convergence
   run_reactor_to_decanter.py          # 反応器からデカンターへの接続試行
 docs/
+  cost.md                             # コスト式と単価の整理
   documentation-policy.md             # 文書運用方針
   optimization.md                     # 最適化設計メモ
   overview.md                         # 設定条件概要
@@ -132,6 +133,8 @@ src/process_sim/
       integrator.py                   # 数値積分
       kinetics.py                     # 反応速度式
       models.py                       # 反応器入出力モデル
+      pressure_drop.py                # 圧力損失計算
+      radial_geometry.py              # ラジアルフロー形状計算
       reaction.py                     # 反応定義
       stream.py                       # 反応器ストリーム
       thermodynamics.py               # 熱力学計算
@@ -149,7 +152,17 @@ src/process_sim/
       radial_simple_optuna.py         # radial 反応器の簡易利益 Optuna runner
       radial_fast_plant_optuna.py     # plant 経済収支 Optuna runner
   separator/
-    hysys_io.py                       # HYSYS分離系I/O
+    equipment.py                      # HYSYS から読んだ機器状態モデル
+    equipment_log.py                  # 機器読み取り確認用の標準出力
+    hysys_equipment_reference.py      # 固定 HYSYS case 上の参照先定義
+    hysys_io.py                       # HYSYS 分離系 I/O
+    equipment_reader/
+      common.py                       # COM 読み取り共通処理
+      decanter.py                     # デカンター寸法読み取り
+      distillation.py                 # 蒸留塔読み取り、塔径・塔高計算
+      heat_exchanger.py               # 冷却器、加熱器読み取り
+      process_equipment.py            # 機器一式の組み立て
+      rotating_equipment.py           # ポンプ、コンプレッサー読み取り
   plant/
     const.py                         # plant 共通固定値
     convergence.py                   # plant recycle 収束計算
@@ -181,11 +194,13 @@ src/process_sim/
 - `src/process_sim/optimization/`
   最適化まわりの探索範囲、候補条件、制約値を置く。
 - `src/process_sim/separator/`
-  HYSYS 分離系との接続処理を置く。HYSYS COM オブジェクトはこの層の外に直接出さない方針である。
+  HYSYS 分離系との接続処理と、コスト計算へ渡す機器モデルの読み取り処理を置く。HYSYS COM オブジェクトはこの層の外に直接出さない方針である。
+- `src/process_sim/separator/equipment_reader/`
+  固定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、明示的な Python モデルへ変換する。読み取れない必須値は補完せず、例外として扱う。
 - `src/process_sim/plant/`
   反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱う。
 - `scripts/`
-  実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行を置く。
+  実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行、デカンターと蒸留塔の部分最適化を置く。部分最適化に固有の HYSYS ケース、診断 JSON、図も各ディレクトリ内で管理する。
 - `data/`
   参考資料や入力データを置く。
 - `data/hysys/`
@@ -239,13 +254,21 @@ uv run run-reactor-case
 uv run run-plant-once
 ```
 
-既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。既定では `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_CASE_PATH` に設定された HYSYS ケースを使う。別ケースを使う場合は `--case-path` で指定する。Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡し、主要 stream の要約を出力する。
+既定ではラジアルフロー反応器を使う。PFR を使う場合は `--reactor-model pfr` を付ける。既定では `src/process_sim/plant/const.py` の `DEFAULT_HYSYS_CASE_PATH` に設定された HYSYS ケースを使う。別ケースを使う場合は `--case-path` で指定する。Python 反応器出口を HYSYS 側の `reactor_outlet` stream に渡し、主要 stream の要約を出力する。
 
-HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行する。timeout は `src/process_sim/plant/runner.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理し、CLI からは `--timeout-seconds` で変更できる。`--case-path` と `--hidden` は子プロセス側にも渡される。
+HYSYS 側の計算停止に備え、既定では子 Python プロセスに隔離して実行する。timeout は `src/process_sim/plant/const.py` の `DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS` で管理し、CLI からは `--timeout-seconds` で変更できる。`--case-path` と `--hidden` は子プロセス側にも渡される。
 
 `run-plant-once` と `tune-plant-feed` は CLI 入口で logging を初期化し、plant 実行開始、使用する HYSYS case path、HYSYS 表示設定、反応器計算、分離計算の進行を標準エラーへ出す。
 
 HYSYS の表示設定は用途で分ける。手動確認やデバッグ用の script 実行では、停止ダイアログやエラー内容を確認できるように `hysys_visible=True` を基本とする。自動探索では、ダイアログで処理が止まるのを避けるため `hysys_visible=False` または `--hidden` を明示して使う方針である。
+
+既定 HYSYS ケースからコスト計算用の機器情報を読み取れるか確認する場合は、以下を使う。
+
+```powershell
+uv run python scripts/read_hysys_equipment.py
+```
+
+この script は CLI 引数を持たない。`src/process_sim/plant/const.py` の `DEFAULT_HYSYS_CASE_PATH` を使って HYSYS ケースを開き、蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーの読み取り結果を標準出力へ表示する。確認用の一時実行であり、ログファイルは作らない。
 
 目標 SM product 流量に合わせて fresh feed を調整する場合は、以下を使う。
 
@@ -313,6 +336,8 @@ uv run python -m process_sim.optimization.runner.radial_simple_optuna
 
 ## 主要文書
 
+- `docs/cost.md`
+  コスト式、単価、経済収支の評価条件。
 - `docs/overview.md`
   プロセス全体の条件、検討メモ、現状整理。人間のみが編集する。
 - `docs/reactor.md`
@@ -335,4 +360,4 @@ uv run python -m process_sim.optimization.runner.radial_simple_optuna
 - 設計上の仮定は一箇所にまとめて管理する方針である。
 - 設計判断は、後から理由を追える形で残す。
 - HYSYS 側の変更も、可能な限り文書として記録する。
-- Codex を使った作業も、後から追跡できる形で残す。
+- Codex が行った作業も、後から追跡できる形で残す。

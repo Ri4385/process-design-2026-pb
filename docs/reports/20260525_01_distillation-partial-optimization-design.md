@@ -121,12 +121,12 @@ NetLiqVolLiquidFlowsValue
 単位は次を前提にする。
 
 ```text
-NetMassVapourFlowsValue: kg/h
-NetMassLiquidFlowsValue: kg/h
-NetMolarVapourFlowsValue: kmol/h
+NetMassVapourFlowsValue: kg/s
+NetMassLiquidFlowsValue: kg/s
+NetMolarVapourFlowsValue: kmol/s
 TemperaturesValue: degC
 PressuresValue: kPa
-NetLiqVolLiquidFlowsValue: m3/h
+NetLiqVolLiquidFlowsValue: m3/s
 ```
 
 ## feed 段 sweep
