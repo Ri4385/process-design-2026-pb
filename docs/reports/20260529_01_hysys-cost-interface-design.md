@@ -44,6 +44,7 @@ src/process_sim/
       distillation.py        # 蒸留塔 reader と塔径・塔高計算
       decanter.py            # デカンター spreadsheet 寸法の読み取り
       heat_exchanger.py      # cooler / heater operation の読み取り
+      rotating_equipment.py  # pump / compressor operation の読み取り
   plant/
     economics.py             # 既存互換の経済計算関数。後で薄くする
     cost/
@@ -81,11 +82,12 @@ docs/
   - `distillation.py` は蒸留塔の読み取り、塔径、塔高計算を担当する。
   - `decanter.py` は `SPRDSHT-1`、`SPRDSHT-2` からデカンター寸法を読む。
   - `heat_exchanger.py` は `C-*`、`H-*` operation から duty と入口出口温度を読む。
+  - `rotating_equipment.py` は `P-*`、`K-*` operation から power を読む。
   - `common.py` は必須属性取得や数値配列取得などの小さい共通 helper だけを持つ。
   - COM オブジェクトは package の外へ出さない。
 - `separator/equipment_log.py`
   - `ProcessEquipment` 全体の読み取り状況を標準出力向けに整形する。
-  - 実装済みの蒸留塔、デカンター、冷却器、加熱器は詳細を出し、未実装の機器種別は件数で確認する。
+  - 実装済みの蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーは詳細を出す。
 - `scripts/read_hysys_equipment.py`
   - `plant/const.py` の `DEFAULT_HYSYS_CASE_PATH` を使って HYSYS case を開く。
   - CLI 入口、コマンドライン引数、ファイル出力は持たない。
@@ -219,11 +221,12 @@ src/process_sim/separator/
     distillation.py      # 蒸留塔のみを読む
     decanter.py          # デカンター寸法を読む
     heat_exchanger.py    # 冷却器、加熱器を読む
+    rotating_equipment.py # ポンプ、コンプレッサーを読む
 scripts/
   read_hysys_equipment.py # 既定 case を読み、標準出力へ表示する
 ```
 
-この module は、コスト計算や通常実行で常に出すログではなく、実装確認用の診断出力として使う。ファイルには出力せず、標準出力だけに表示する。対象は `DistillationColumn` 単体ではなく `ProcessEquipment` 全体である。現在は、`distillation_columns`、`decanters`、`coolers`、`heaters` を読む。`pumps`、`compressors` は空 tuple として件数だけ確認する。
+この module は、コスト計算や通常実行で常に出すログではなく、実装確認用の診断出力として使う。ファイルには出力せず、標準出力だけに表示する。対象は `DistillationColumn` 単体ではなく `ProcessEquipment` 全体である。現在は、`distillation_columns`、`decanters`、`coolers`、`heaters`、`pumps`、`compressors` を読む。
 
 実行は次のように行う。
 
