@@ -40,8 +40,6 @@
 - 設計判断と作業記録
 - 最終レポート用の技術的根拠
 
-`pptx` は原則として本リポジトリで直接管理しない。必要であれば、スライド案を `md` で残す。
-
 ## 現在の方針
 
 - 反応器側は主に Python で扱う想定である。
@@ -68,7 +66,7 @@
 - コンテスト課題: `data/chem_contest.md`
 - 過去レポート: `data/report_md/~`, 
 
-コンテスト課題は主要な参考資料だが、最終的な設計判断は授業の目的と実際の検討内容を優先する。
+コンテスト課題は主要な参考資料とする。
 
 ## 開発環境
 
@@ -78,8 +76,6 @@
 - パッケージ管理: `uv`
 - 静的解析: `ruff`
 - テスト: `pytest`
-
-HYSYS との互換性の都合で Python バージョンを調整する可能性がある。
 
 ## セットアップ
 
@@ -105,11 +101,11 @@ scripts/
   check_hysys_connection.py           # HYSYS 接続確認
   decanter/                           # デカンター部分最適化
   distillation/                       # 蒸留塔部分最適化
+  reactor-profile/                    # 反応器プロファイル出力
+  reactor_sensitivity_analysis/       # 反応器感度分析
   export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
   read_hysys_equipment.py             # 既定 HYSYS case の機器読み取り確認
-  reactor-profile/                    # 反応器プロファイル出力
-  reactor_sensitivity_analysis/       # 反応器感度分析
   run_fixed_plant_convergence.py      # 固定 feed で plant convergence
   run_reactor_to_decanter.py          # 反応器からデカンターへの接続試行
 docs/
@@ -364,4 +360,4 @@ uv run python -m process_sim.optimization.runner.radial_simple_optuna
 - 設計上の仮定は一箇所にまとめて管理する方針である。
 - 設計判断は、後から理由を追える形で残す。
 - HYSYS 側の変更も、可能な限り文書として記録する。
-- Codex を使った作業も、後から追跡できる形で残す。
+- Codex が行った作業も、後から追跡できる形で残す。
