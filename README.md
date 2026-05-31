@@ -93,6 +93,7 @@ uv sync
 data/
   chem_contest.md                     # コンテスト課題資料
   hysys/                              # HYSYS ケース
+  optuna/                             # Optuna SQLite storage
   diagnostics/                        # HYSYS ケース診断 JSON
   report_md/                          # 過去レポート Markdown
   report_pdf/                         # 過去レポート PDF
@@ -103,6 +104,7 @@ scripts/
   distillation/                       # 蒸留塔部分最適化
   reactor-profile/                    # 反応器プロファイル出力
   reactor_sensitivity_analysis/       # 反応器感度分析
+  reactor_pareto/                     # 選択率・単通反応率 Pareto front 描画
   export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
   read_hysys_equipment.py             # 既定 HYSYS case の機器読み取り確認
@@ -151,6 +153,7 @@ src/process_sim/
     runner/
       radial_simple_optuna.py         # radial 反応器の簡易利益 Optuna runner
       radial_fast_plant_optuna.py     # plant 経済収支 Optuna runner
+      radial_pareto_optuna.py         # radial 反応器の Pareto front 探索 runner
   separator/
     equipment.py                      # HYSYS から読んだ機器状態モデル
     equipment_log.py                  # 機器読み取り確認用の標準出力
@@ -201,10 +204,14 @@ src/process_sim/
   反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱う。
 - `scripts/`
   実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行、デカンターと蒸留塔の部分最適化を置く。部分最適化に固有の HYSYS ケース、診断 JSON、図も各ディレクトリ内で管理する。
+- `scripts/reactor_pareto/`
+  radial 反応器の全 trial と Pareto front の図を生成する。
 - `data/`
   参考資料や入力データを置く。
 - `data/hysys/`
   HYSYS の `.hsc` などを置く想定である。
+- `data/optuna/`
+  中断後に再開する Optuna 探索の SQLite storage を置く。DB は Git 管理対象外とする。
 - `data/diagnostics/`
   HYSYS ケースの診断用 JSON を置く。これは人間向けのプロセスログではなく、ケース内部の状態確認用である。
 - `data/report_md/`, `data/report_pdf/`
@@ -332,6 +339,28 @@ uv run python -m process_sim.optimization.runner.radial_simple_optuna
 ```
 
 探索条件は `src/process_sim/optimization/runner/radial_simple_optuna.py` の冒頭定数を直接編集する。2段と3段は別 study として実行し、各 trial の候補条件、制約結果、簡易利益内訳を logging に出す。各 trial の反応器詳細ログは標準出力に出す。
+
+radial 反応器の SM 選択率と EB 単通反応率の Pareto front 探索は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.radial_pareto_optuna
+```
+
+2段と3段は別 study として `data/optuna/radial_pareto_optuna.db` に保存する。`src/process_sim/optimization/runner/radial_pareto_optuna.py` 冒頭の `TARGET_EFFECTIVE_TRIALS_BY_STAGE_COUNT` で段数ごとの累積目標 trial 数を指定し、不足分だけを追加する。`FAIL` は有効 trial 数に含めない。
+
+途中時点までの全 trial、段数ごとの Pareto front、global Pareto front を描画する場合は、以下を使う。
+
+```powershell
+uv run python scripts/reactor_pareto/plot_pareto_front.py
+```
+
+指定した EB 単通反応率以上で SM 選択率が最大の条件を確認する場合は、以下を使う。
+
+```powershell
+uv run python scripts/reactor_pareto/select_best_condition.py
+```
+
+単通反応率の下限は `scripts/reactor_pareto/select_best_condition.py` 冒頭の `MIN_EB_CONVERSION` で指定する。
 
 
 ## 主要文書

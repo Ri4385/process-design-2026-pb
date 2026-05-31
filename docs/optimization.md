@@ -20,6 +20,7 @@ src/process_sim/optimization/
     constraints.py   # 反応器制約
   runner/
     radial_simple_optuna.py  # radial 反応器の簡易利益 Optuna runner
+    radial_pareto_optuna.py  # radial 反応器の選択率・単通反応率 Pareto front 探索 runner
 ```
 
 - `src/process_sim/optimization/models.py`
@@ -35,6 +36,11 @@ src/process_sim/optimization/
   - 2段 radial study と 3段 radial study を別々に実行する。
   - `from optuna.samplers import TPESampler` を使う。
   - 各 trial の候補条件、制約結果、簡易利益内訳を logging へ出す。
+- `src/process_sim/optimization/runner/radial_pareto_optuna.py`
+  - 2段 radial study と 3段 radial study を別々に実行する。
+  - `from optuna.samplers import NSGAIISampler` を使う。
+  - SM 選択率と EB 単通反応率を同時に最大化する。
+  - `data/optuna/radial_pareto_optuna.db` を使い、中断後に探索を再開できるようにする。
 
 ## コード記述ルール
 

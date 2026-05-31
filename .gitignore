@@ -43,6 +43,8 @@ data/hysys/*.bk0
 # Local development artifacts
 *.tmp
 *.log
+data/optuna/*.db
+logs/
 
 # Build outputs (if any)
 dist/
