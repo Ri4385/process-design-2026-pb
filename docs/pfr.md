@@ -4,7 +4,7 @@
 
 この文書は、多段断熱 PFR 実装の恒久メモである。
 
-PFR は、主設計の radial reactor と比較するための軸方向固定床モデルとして残す。特に、同じ触媒体積を与えたときに、PFR と radial reactor で圧力損失分布がどう異なるかを比較できるようにする。
+PFR は、主設計の radial reactor と比較するための軸方向固定床モデルとして扱う。
 
 ## 現在の実装
 
@@ -29,12 +29,13 @@ PFR は、主設計の radial reactor と比較するための軸方向固定床
 
 ## 既定条件
 
-- 入口圧力は `200 kPa abs` とする。
 - 段入口温度は `550, 550, 550 degC` とする。
-- 段長は `2.5, 2.5, 2.5 m` とする。
-- 総触媒体積は radial 既定ケースと同じ `99.313 m3` とする。
-- 断面積は `A_c = V_cat,total / L_total` で決める。
-- 等価直径は `D_eq = sqrt(4 A_c / pi)` でログに出す。
+- 既定ケースの入口圧力は `230 kPa abs` とする。Pareto 探索では上限 `300 kPa abs` として探索する。
+- 各段入口空塔速度は `2.0 m/s` とする。
+- 各段 `L/D` は既定値 `0.4` とする。Pareto 探索では `0.2–1.0` とする。
+- 各段断面積は、各段入口体積流量と入口空塔速度から決める。
+- 各段直径は `D_i = sqrt(4 A_i / pi)` で決める。
+- 各段長は `L_i = (L/D)_i D_i` で決める。
 - 触媒粒子径、空隙率、バルク密度、Ergun 係数、粘度は radial 既定ケースと同じ値を使う。
 
 ## 主な入力
@@ -43,8 +44,8 @@ PFR は、主設計の radial reactor と比較するための軸方向固定床
 - `ReactorRunConditions`
   - `pressure_kpa`
   - `stage_inlet_temperatures_c`
-  - `stage_lengths_m`
-  - `total_catalyst_volume_m3`
+  - `inlet_superficial_velocity_m_per_s`
+  - `stage_ld_ratios`
   - `pellet_diameter_m`
   - `bed_void_fraction`
   - `catalyst_bulk_density_kg_m3`
@@ -68,12 +69,16 @@ PFR は、主設計の radial reactor と比較するための軸方向固定床
 - 触媒質量
 - 断面積
 - 等価直径
+- `L/D`
 - 各段の温度、圧力、線速、Re、再加熱負荷
 - C と H の元素収支誤差
 - 出口圧力、圧力正値、Ergun 適用範囲、元素収支の制約判定
+- profile 上の空塔速度 `1–3 m/s`、各段長 `10 m` 以下の制約判定
 
 ## 注意点
 
 PFR の触媒質量は、触媒体積に `catalyst_bulk_density_kg_m3` を掛けてログ用に計算する。現行の反応速度式は体積基準として扱っているため、`catalyst_bulk_density_kg_m3` は反応速度計算そのものには使わない。
 
-同じ触媒体積を PFR と radial に与えると、PFR では出口圧力制約を満たさない場合がある。この場合も計算は中断せず、制約判定を `NG` としてログに残す。
+各段の触媒体積は、入口空塔速度と `L/D` から決まる導出値である。出口圧力制約を満たさない場合も計算結果をログに残し、制約判定を `NG` とする。
+
+元素収支は、入口と出口の C 原子流量、H 原子流量の相対誤差がそれぞれ `1e-8` 未満であることを要求する。

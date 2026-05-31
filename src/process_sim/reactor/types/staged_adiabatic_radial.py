@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES, SpeciesPhysicalProperty
 from process_sim.constants.reaction_networks import ReactionNetwork, STYRENE_SIX_REACTION_NETWORK
@@ -35,7 +36,7 @@ class StagedAdiabaticRadialFlowModel:
         self.universal = universal
 
     def run(self, feed: ReactorFeed, conditions: RadialReactorRunConditions) -> ReactorResult:
-        """多段断熱ラジアルフロー反応器を計算する。"""
+        """中心流路半径と入口空塔速度から各段高さを決めて計算する。"""
         self._validate_conditions(conditions)
         properties = self.properties or SPECIES_PHYSICAL_PROPERTIES
         ergun_parameters = ErgunParameters(
@@ -62,15 +63,16 @@ class StagedAdiabaticRadialFlowModel:
             zip(conditions.stage_inlet_temperatures_k, conditions.bed_thicknesses_m, strict=True),
             start=1,
         ):
-            bed_inner_radius_m = self._bed_inner_radius_m(
+            bed_height_m = self._bed_height_m(
                 stream=current_stream,
                 temperature_k=stage_temperature_k,
                 pressure_pa=current_pressure_pa,
-                conditions=conditions,
+                inner_radius_m=conditions.center_channel_radius_m,
+                inlet_velocity_m_per_s=conditions.inlet_superficial_velocity_m_per_s,
             )
             geometry = RadialBedGeometry(
-                inner_radius_m=bed_inner_radius_m,
-                bed_height_m=conditions.bed_height_m,
+                inner_radius_m=conditions.center_channel_radius_m,
+                bed_height_m=bed_height_m,
                 bed_thickness_m=bed_thickness_m,
                 catalyst_bulk_density_kg_m3=conditions.catalyst_bulk_density_kg_m3,
             )
@@ -103,7 +105,6 @@ class StagedAdiabaticRadialFlowModel:
                 raw_reheat_outlet_pressure_pa = current_pressure_pa - conditions.interstage_reheater_pressure_drop_pa
                 interstage_pressure_positive_values.append(raw_reheat_outlet_pressure_pa > 0.0)
                 current_pressure_pa = max(raw_reheat_outlet_pressure_pa, 1.0)
-
             stage_logs.append(
                 replace(
                     stage_result.stage_log,
@@ -119,26 +120,22 @@ class StagedAdiabaticRadialFlowModel:
         carbon_error, hydrogen_error = atom_balance_errors(feed=feed, outlet=outlet_state.stream)
         reactor_pressure_drop_kpa = sum(log.reactor_pressure_drop_kpa or 0.0 for log in stage_logs)
         reheat_pressure_drop_kpa = sum(log.reheat_pressure_drop_kpa or 0.0 for log in stage_logs)
-        max_re = max(
-            (log.max_re_over_one_minus_void or 0.0 for log in stage_logs),
-            default=0.0,
+        max_re = max((log.max_re_over_one_minus_void or 0.0 for log in stage_logs), default=0.0)
+        radial_bed_outlet_velocity_ok = all(
+            log.outlet_superficial_velocity_m_per_s >= conditions.min_bed_outlet_velocity_m_per_s
+            for log in stage_logs
         )
-        first_stage_inner_radius_m = stage_logs[0].inner_radius_m
+        first_stage = stage_logs[0]
         result_log = ReactorRunLog(
-            cross_section_area_m2=first_stage_inner_radius_m * 2.0 * 3.141592653589793 * conditions.bed_height_m
-            if first_stage_inner_radius_m is not None
-            else 0.0,
-            inlet_volumetric_flow_m3_s=profile[0].superficial_velocity_m_per_s
-            * 2.0
-            * 3.141592653589793
-            * first_stage_inner_radius_m
-            * conditions.bed_height_m
-            if (
-                profile
-                and profile[0].superficial_velocity_m_per_s is not None
-                and first_stage_inner_radius_m is not None
-            )
-            else 0.0,
+            cross_section_area_m2=2.0
+            * math.pi
+            * conditions.center_channel_radius_m
+            * (first_stage.bed_height_m or 0.0),
+            inlet_volumetric_flow_m3_s=self._volumetric_flow_m3_s(
+                stream=feed,
+                temperature_k=conditions.stage_inlet_temperatures_k[0],
+                pressure_pa=conditions.inlet_pressure_pa,
+            ),
             stage_logs=tuple(stage_logs),
             profile=tuple(profile),
             reactor_pressure_drop_kpa=reactor_pressure_drop_kpa,
@@ -150,10 +147,11 @@ class StagedAdiabaticRadialFlowModel:
             carbon_balance_error_fraction=carbon_error,
             hydrogen_balance_error_fraction=hydrogen_error,
             atom_balance_ok=carbon_error < 1e-8 and hydrogen_error < 1e-8,
-            outlet_pressure_ok=outlet_state.pressure_kpa >= 50.0,
+            outlet_pressure_ok=outlet_state.pressure_kpa >= conditions.min_outlet_pressure_kpa_abs,
             pressure_positive_ok=all(log.pressure_positive_ok is not False for log in stage_logs)
             and all(interstage_pressure_positive_values),
             ergun_range_ok=max_re < 500.0,
+            radial_bed_outlet_velocity_ok=radial_bed_outlet_velocity_ok,
         )
         return ReactorResult(
             outlet=outlet_state,
@@ -163,33 +161,50 @@ class StagedAdiabaticRadialFlowModel:
         )
 
     def _validate_conditions(self, conditions: RadialReactorRunConditions) -> None:
-        if conditions.segments_per_stage <= 0:
-            raise ValueError("segments_per_stage must be positive")
-        if conditions.profile_points_per_stage <= 0:
-            raise ValueError("profile_points_per_stage must be positive")
+        """入力条件の構造を検証する。"""
         if len(conditions.stage_inlet_temperatures_k) != len(conditions.bed_thicknesses_m):
             raise ValueError("stage_inlet_temperatures_k and bed_thicknesses_m must have the same length")
         if len(conditions.stage_inlet_temperatures_k) not in (2, 3):
             raise ValueError("radial staged model supports only 2 or 3 stages")
-        if conditions.inlet_pressure_pa <= 0.0:
-            raise ValueError("inlet_pressure_pa must be positive")
-        if conditions.inlet_superficial_velocity_m_per_s <= 0.0:
-            raise ValueError("inlet_superficial_velocity_m_per_s must be positive")
+        positive_values = (
+            conditions.inlet_pressure_pa,
+            conditions.inlet_superficial_velocity_m_per_s,
+            conditions.center_channel_radius_m,
+            conditions.min_outlet_pressure_kpa_abs,
+            conditions.min_bed_outlet_velocity_m_per_s,
+            float(conditions.segments_per_stage),
+            float(conditions.profile_points_per_stage),
+        )
+        if any(value <= 0.0 for value in positive_values):
+            raise ValueError("radial conditions must be positive")
+        if any(bed_thickness_m <= 0.0 for bed_thickness_m in conditions.bed_thicknesses_m):
+            raise ValueError("bed_thicknesses_m must be positive")
 
-    def _bed_inner_radius_m(
+    def _bed_height_m(
         self,
         stream: ReactorFeed,
         temperature_k: float,
         pressure_pa: float,
-        conditions: RadialReactorRunConditions,
+        inner_radius_m: float,
+        inlet_velocity_m_per_s: float,
     ) -> float:
-        """各段入口空塔速度から触媒床内半径を計算する。"""
-        total_flow_mol_s = stream.total_flow_kmol_s() * 1000.0
-        inlet_volumetric_flow_m3_s = (
-            total_flow_mol_s
-            * self.universal.gas_constant_j_per_mol_k
-            * temperature_k
-            / pressure_pa
+        """中心流路半径と入口空塔速度から触媒床高さを返す。"""
+        inlet_area_m2 = (
+            self._volumetric_flow_m3_s(
+                stream=stream,
+                temperature_k=temperature_k,
+                pressure_pa=pressure_pa,
+            )
+            / inlet_velocity_m_per_s
         )
-        inlet_area_m2 = inlet_volumetric_flow_m3_s / conditions.inlet_superficial_velocity_m_per_s
-        return inlet_area_m2 / (2.0 * 3.141592653589793 * conditions.bed_height_m)
+        return inlet_area_m2 / (2.0 * math.pi * inner_radius_m)
+
+    def _volumetric_flow_m3_s(
+        self,
+        stream: ReactorFeed,
+        temperature_k: float,
+        pressure_pa: float,
+    ) -> float:
+        """理想気体の体積流量を返す。"""
+        total_flow_mol_s = stream.total_flow_kmol_s() * 1000.0
+        return total_flow_mol_s * self.universal.gas_constant_j_per_mol_k * temperature_k / pressure_pa

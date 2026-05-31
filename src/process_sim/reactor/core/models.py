@@ -13,8 +13,8 @@ class ReactorRunConditions:
 
     pressure_kpa: float
     stage_inlet_temperatures_c: tuple[float, ...]
-    stage_lengths_m: tuple[float, ...]
-    total_catalyst_volume_m3: float
+    inlet_superficial_velocity_m_per_s: float
+    stage_ld_ratios: tuple[float, ...]
     pellet_diameter_m: float
     bed_void_fraction: float
     catalyst_bulk_density_kg_m3: float
@@ -24,6 +24,10 @@ class ReactorRunConditions:
     interstage_reheater_pressure_drop_pa: float
     segments_per_stage: int
     profile_points_per_stage: int
+    min_outlet_pressure_kpa_abs: float = 60.0
+    max_stage_length_m: float = 10.0
+    min_superficial_velocity_m_per_s: float = 1.0
+    max_superficial_velocity_m_per_s: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -33,7 +37,7 @@ class RadialReactorRunConditions:
     inlet_pressure_pa: float
     stage_inlet_temperatures_k: tuple[float, ...]
     inlet_superficial_velocity_m_per_s: float
-    bed_height_m: float
+    center_channel_radius_m: float
     bed_thicknesses_m: tuple[float, ...]
     pellet_diameter_m: float
     bed_void_fraction: float
@@ -44,6 +48,8 @@ class RadialReactorRunConditions:
     interstage_reheater_pressure_drop_pa: float
     segments_per_stage: int
     profile_points_per_stage: int
+    min_outlet_pressure_kpa_abs: float = 60.0
+    min_bed_outlet_velocity_m_per_s: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -99,8 +105,13 @@ class ReactorStageLog:
     outer_radius_m: float | None = None
     bed_height_m: float | None = None
     bed_thickness_m: float | None = None
+    cross_section_area_m2: float | None = None
+    equivalent_diameter_m: float | None = None
+    ld_ratio: float | None = None
     catalyst_volume_m3: float | None = None
     catalyst_mass_kg: float | None = None
+    min_superficial_velocity_m_per_s: float | None = None
+    max_superficial_velocity_m_per_s: float | None = None
     min_re_over_one_minus_void: float | None = None
     max_re_over_one_minus_void: float | None = None
     carbon_balance_error_fraction: float | None = None
@@ -128,6 +139,9 @@ class ReactorRunLog:
     outlet_pressure_ok: bool | None = None
     pressure_positive_ok: bool | None = None
     ergun_range_ok: bool | None = None
+    radial_bed_outlet_velocity_ok: bool | None = None
+    length_ok: bool | None = None
+    velocity_range_ok: bool | None = None
 
 
 @dataclass(frozen=True)

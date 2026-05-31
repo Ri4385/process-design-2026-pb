@@ -58,8 +58,9 @@ def radial_reactor_capital_cost_yen(result: ReactorResult) -> float:
     for stage_log in result.log.stage_logs:
         if stage_log.outer_radius_m is None or stage_log.bed_height_m is None:
             raise ValueError("radial reactor stage log must include outer_radius_m and bed_height_m")
-        reactor_diameter_m = 2.0 * stage_log.outer_radius_m
-        total_cost_yen += 20_000_000.0 * reactor_diameter_m**1.066 * stage_log.bed_height_m**0.82
+        total_cost_yen += (
+            20_000_000.0 * (2.0 * stage_log.outer_radius_m) ** 1.066 * stage_log.bed_height_m**0.82
+        )
     return total_cost_yen
 
 

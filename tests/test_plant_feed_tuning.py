@@ -46,8 +46,8 @@ def reactor_case(feed: ReactorFeed) -> ReactorCase:
         conditions=ReactorRunConditions(
             pressure_kpa=200.0,
             stage_inlet_temperatures_c=(550.0,),
-            stage_lengths_m=(1.0,),
-            total_catalyst_volume_m3=1.0,
+            inlet_superficial_velocity_m_per_s=2.0,
+            stage_ld_ratios=(3.0,),
             pellet_diameter_m=0.003,
             bed_void_fraction=0.4,
             catalyst_bulk_density_kg_m3=1400.0,
@@ -81,7 +81,12 @@ def test_recycle_stream_is_mapped_to_reactor_feed_components() -> None:
 
 
 def test_build_reactor_feed_adds_fresh_feed_and_recycles() -> None:
-    policy = FreshFeedPolicy(eb_mol_fraction=0.9, benzene_mol_fraction=0.1, steam_to_fresh_eb_ratio=4.0)
+    policy = FreshFeedPolicy(
+        eb_mol_fraction=0.9,
+        benzene_mol_fraction=0.1,
+        toluene_mol_fraction=0.0,
+        steam_to_fresh_eb_ratio=4.0,
+    )
     fresh = FreshFeed(hydrocarbon_kmol_h=100.0, steam_kmol_h=360.0)
     eb_recycle = reactor_feed_from_plant_stream(stream_record("eb_recycle", {"E-Benzene": 20.0}))
     water_recycle = reactor_feed_from_plant_stream(stream_record("water_recycle", {"H2O": 30.0}))
