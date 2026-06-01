@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
@@ -6,6 +8,7 @@ from process_sim.constants.universal import UNIVERSAL_CONSTANTS
 from process_sim.reactor.cases.styrene_radial_default import RadialReactorCase
 from process_sim.reactor.cases.styrene_default import ReactorCase
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core import config
 from process_sim.reactor.core.models import RadialReactorRunConditions, ReactorRunConditions
 from process_sim.reactor.core.pressure_drop import ErgunParameters
 from process_sim.reactor.core.reaction import reaction_rates
@@ -71,6 +74,39 @@ def make_test_radial_case() -> RadialReactorCase:
             segments_per_stage=12000,
             profile_points_per_stage=12,
         ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "case"),
+    [
+        (StagedAdiabaticPfrModel(), make_test_pfr_case()),
+        (StagedAdiabaticRadialFlowModel(), make_test_radial_case()),
+    ],
+)
+def test_numba_reactor_core_matches_python_path(
+    model: StagedAdiabaticPfrModel | StagedAdiabaticRadialFlowModel,
+    case: ReactorCase | RadialReactorCase,
+) -> None:
+    original = config.USE_NUMBA_REACTOR_CORE
+    case = replace(case, conditions=replace(case.conditions, segments_per_stage=100))
+    try:
+        config.USE_NUMBA_REACTOR_CORE = False
+        python_result = model.run(feed=case.feed, conditions=case.conditions)
+        config.USE_NUMBA_REACTOR_CORE = True
+        numba_result = model.run(feed=case.feed, conditions=case.conditions)
+    finally:
+        config.USE_NUMBA_REACTOR_CORE = original
+
+    assert numba_result.outlet.pressure_kpa == pytest.approx(python_result.outlet.pressure_kpa)
+    assert numba_result.outlet.temperature_c == pytest.approx(python_result.outlet.temperature_c)
+    assert numba_result.eb_conversion == pytest.approx(python_result.eb_conversion)
+    assert numba_result.styrene_selectivity == pytest.approx(python_result.styrene_selectivity)
+    assert numba_result.log.carbon_balance_error_fraction == pytest.approx(
+        python_result.log.carbon_balance_error_fraction
+    )
+    assert numba_result.log.hydrogen_balance_error_fraction == pytest.approx(
+        python_result.log.hydrogen_balance_error_fraction
     )
 
 

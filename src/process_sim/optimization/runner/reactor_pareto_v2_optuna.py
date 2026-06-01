@@ -35,10 +35,10 @@ Candidate = RadialReactorCandidate | AxialParetoCandidate
 Config = RadialReactorParameterConfig | AxialParetoParameterConfig
 
 TARGET_EFFECTIVE_TRIALS_BY_REACTOR_AND_STAGE_COUNT: dict[tuple[ReactorType, int], int] = {
-    ("radial", 2): 1300,
-    ("radial", 3): 1300,
-    ("axial", 2): 1300,
-    ("axial", 3): 1300,
+    ("radial", 2): 2000,
+    ("radial", 3): 2000,
+    ("axial", 2): 2000,
+    ("axial", 3): 2000,
 }
 POPULATION_SIZE = 50
 SEED: int | None = None
@@ -55,7 +55,7 @@ ERGUN_A = 1.75
 ERGUN_B = 150.0
 GAS_VISCOSITY_PA_S = 2.6e-5
 INTERSTAGE_REHEATER_PRESSURE_DROP_PA = 20_000.0
-SEGMENTS_PER_STAGE = 12_000
+SEGMENTS_PER_STAGE = 50_000
 PROFILE_POINTS_PER_STAGE = 12
 MIN_OUTLET_PRESSURE_KPA_ABS = 60.0
 

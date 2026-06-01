@@ -133,9 +133,11 @@ src/process_sim/
       styrene_radial_default.py       # 既定ラジアル反応器ケース
     core/
       balance.py                      # 反応器収支式
+      config.py                       # 反応器中核計算の切り替え設定
       integrator.py                   # 数値積分
       kinetics.py                     # 反応速度式
       models.py                       # 反応器入出力モデル
+      numba_reactor.py                # 既定反応器の Numba 高速積分
       pressure_drop.py                # 圧力損失計算
       radial_geometry.py              # ラジアルフロー形状計算
       reaction.py                     # 反応定義
