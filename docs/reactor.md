@@ -9,11 +9,12 @@
 
 - 反応器サイドは HYSYS を使わず、純 Python で計算する。
 - 物性値、反応ネットワーク、共通計算、具体的な反応器型、実行ケースを分離している。
-- 具体モデルは `src/process_sim/reactor/types/staged_adiabatic_pfr.py` の `StagedAdiabaticPfrModel` である。
-- 採用している構成は多段断熱 PFR であり、既定ケースでは 3 段断熱 PFR として扱う。
+- axial の具体モデルは `src/process_sim/reactor/types/staged_adiabatic_pfr.py` の `StagedAdiabaticPfrModel` である。
+- radial の具体モデルは `src/process_sim/reactor/types/staged_adiabatic_radial.py` の `StagedAdiabaticRadialFlowModel` である。
+- 既定 axial ケースでは 3 段断熱 PFR として扱う。
 - 反応ネットワークは `data/chem_contest.md` の 6 反応モデルを参照している。
 - 反応熱は固定値を使わず、化学量論と成分エンタルピーから温度ごとに計算する。
-- 圧力損失は入れていない。
+- Ergun 式による触媒層圧力損失と段間再加熱器圧力損失を扱う。
 - 熱損失は入れていない。
 - 反応器内の半径方向分布は持たず、軸方向 1 次元で扱う。
 - 気体は理想気体として扱う。
@@ -68,8 +69,8 @@
 - `ReactorRunConditions`
   - `pressure_kpa` [kPa]
   - `stage_inlet_temperatures_c` [degC, ...]
-  - `stage_lengths_m` [m, ...]
   - `inlet_superficial_velocity_m_per_s` [m/s]
+  - `stage_ld_ratios` [-, ...]
   - `segments_per_stage` [-]
   - `profile_points_per_stage` [-]
 
@@ -100,16 +101,15 @@
 既定ケースは `src/process_sim/reactor/cases/styrene_default.py` に置いている。
 CLI はこのケースを読むだけで、feed や運転条件を直接持たない。
 
-- 圧力 `101.325 kPa`
-- 各段入口温度 `545.4, 571.0, 605.9 degC`
-- 各段長 `3.09, 3.09, 3.09 m`
-- 入口線速 `1.93 m/s`
-- 入口 EB `605.9 kmol/h`
-- 入口 steam `3029.5 kmol/h`
+- 圧力 `300 kPa abs`
+- 各段入口温度 `550, 550, 550 degC`
+- 各段 `L/D = 3, 3, 3`
+- 入口線速 `2.0 m/s`
+- 入口 EB `400 kmol/h`
+- 入口 steam `2744 kmol/h`
 - 入口不純物
-  - `styrene = 0.0606 kmol/h`
-  - `benzene = 0.0606 kmol/h`
-  - `toluene = 0.0606 kmol/h`
+  - `benzene = 2.0 kmol/h`
+  - `toluene = 2.0 kmol/h`
 
 ## 注意点
 

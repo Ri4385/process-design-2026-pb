@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES, SpeciesPhysicalProperty
 from process_sim.constants.reaction_networks import ReactionNetwork, STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS, UniversalConstants
+from process_sim.reactor.core import config
 from process_sim.reactor.core.balance import RadialBalanceContext, radial_adiabatic_derivatives
+from process_sim.reactor.core.integrator import rk4_step_with_position
 from process_sim.reactor.core.models import ReactorProfilePoint, ReactorStageLog, ReactorState
+from process_sim.reactor.core.numba_reactor import can_use_numba_reactor_core, integrate_radial_numba
 from process_sim.reactor.core.pressure_drop import ErgunParameters, reynolds_over_one_minus_void
 from process_sim.reactor.core.radial_geometry import RadialBedGeometry
 from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed, ReactorStream
@@ -81,44 +84,82 @@ class RadialAdiabaticReactor:
             properties=properties,
         )
 
-        for segment_index in range(segments):
-            x = segment_index * dx
-            state_vector = current_vector + [current_temperature_k, current_pressure_pa]
-            next_state = self._rk4_radial_step(
-                state_vector=state_vector,
-                radius_m=geometry.inner_radius_m + x,
-                dr=dx,
-                geometry=geometry,
+        if config.USE_NUMBA_REACTOR_CORE and can_use_numba_reactor_core(self.network, properties, self.universal):
+            integration = integrate_radial_numba(
+                initial_state=current_vector + [current_temperature_k, current_pressure_pa],
+                bed_thickness_m=geometry.bed_thickness_m,
+                inner_radius_m=geometry.inner_radius_m,
+                bed_height_m=geometry.bed_height_m,
                 ergun_parameters=ergun_parameters,
-                properties=properties,
+                segments=segments,
+                profile_stride=profile_stride,
             )
-            current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
-            current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
-            raw_pressure_pa = next_state[len(COMPONENT_ORDER) + 1]
-            pressure_positive_ok = pressure_positive_ok and raw_pressure_pa > 0.0
-            current_pressure_pa = max(raw_pressure_pa, 1.0)
-            re_values.append(
-                self._re_over_one_minus_void(
-                    stream=ReactorStream.from_vector_kmol_s(current_vector),
-                    area_m2=geometry.flow_area_m2(geometry.inner_radius_m + (segment_index + 1) * dx),
-                    ergun_parameters=ergun_parameters,
-                    properties=properties,
+            current_vector = integration.final_state[: len(COMPONENT_ORDER)]
+            current_temperature_k = float(integration.final_state[len(COMPONENT_ORDER)])
+            current_pressure_pa = float(integration.final_state[len(COMPONENT_ORDER) + 1])
+            pressure_positive_ok = integration.pressure_positive_ok
+            re_values.extend(
+                (
+                    integration.min_re_over_one_minus_void,
+                    integration.max_re_over_one_minus_void,
                 )
             )
-
-            if (segment_index + 1) % profile_stride == 0 or segment_index == segments - 1:
+            for position_m, state in zip(
+                integration.profile_positions_m,
+                integration.profile_states,
+                strict=True,
+            ):
                 self._append_profile_point(
                     profile_points=profile,
                     stage_index=stage_index,
-                    radial_position_m=geometry.inner_radius_m + (segment_index + 1) * dx,
+                    radial_position_m=geometry.inner_radius_m + float(position_m),
                     geometry=geometry,
-                    temperature_k=current_temperature_k,
-                    pressure_pa=current_pressure_pa,
-                    stream=ReactorStream.from_vector_kmol_s(current_vector),
+                    temperature_k=float(state[len(COMPONENT_ORDER)]),
+                    pressure_pa=float(state[len(COMPONENT_ORDER) + 1]),
+                    stream=ReactorStream.from_vector_kmol_s(state[: len(COMPONENT_ORDER)]),
                     feed=feed,
                     ergun_parameters=ergun_parameters,
                     properties=properties,
                 )
+        else:
+            for segment_index in range(segments):
+                x = segment_index * dx
+                state_vector = current_vector + [current_temperature_k, current_pressure_pa]
+                next_state = self._rk4_radial_step(
+                    state_vector=state_vector,
+                    radius_m=geometry.inner_radius_m + x,
+                    dr=dx,
+                    geometry=geometry,
+                    ergun_parameters=ergun_parameters,
+                    properties=properties,
+                )
+                current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
+                current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
+                raw_pressure_pa = next_state[len(COMPONENT_ORDER) + 1]
+                pressure_positive_ok = pressure_positive_ok and raw_pressure_pa > 0.0
+                current_pressure_pa = max(raw_pressure_pa, 1.0)
+                re_values.append(
+                    self._re_over_one_minus_void(
+                        stream=ReactorStream.from_vector_kmol_s(current_vector),
+                        area_m2=geometry.flow_area_m2(geometry.inner_radius_m + (segment_index + 1) * dx),
+                        ergun_parameters=ergun_parameters,
+                        properties=properties,
+                    )
+                )
+
+                if (segment_index + 1) % profile_stride == 0 or segment_index == segments - 1:
+                    self._append_profile_point(
+                        profile_points=profile,
+                        stage_index=stage_index,
+                        radial_position_m=geometry.inner_radius_m + (segment_index + 1) * dx,
+                        geometry=geometry,
+                        temperature_k=current_temperature_k,
+                        pressure_pa=current_pressure_pa,
+                        stream=ReactorStream.from_vector_kmol_s(current_vector),
+                        feed=feed,
+                        ergun_parameters=ergun_parameters,
+                        properties=properties,
+                    )
 
         outlet_stream = ReactorStream.from_vector_kmol_s(current_vector)
         outlet_velocity_m_per_s = self._superficial_velocity_m_per_s(
@@ -179,32 +220,18 @@ class RadialAdiabaticReactor:
         ergun_parameters: ErgunParameters,
         properties: dict[str, SpeciesPhysicalProperty],
     ) -> list[float]:
-        k1 = self._derivatives(state_vector, radius_m, geometry, ergun_parameters, properties)
-        k2 = self._derivatives(
-            [value + 0.5 * dr * slope for value, slope in zip(state_vector, k1, strict=True)],
-            radius_m + 0.5 * dr,
-            geometry,
-            ergun_parameters,
-            properties,
+        return rk4_step_with_position(
+            state_vector=state_vector,
+            position=radius_m,
+            step=dr,
+            derivative=lambda values, position: self._derivatives(
+                values,
+                position,
+                geometry,
+                ergun_parameters,
+                properties,
+            ),
         )
-        k3 = self._derivatives(
-            [value + 0.5 * dr * slope for value, slope in zip(state_vector, k2, strict=True)],
-            radius_m + 0.5 * dr,
-            geometry,
-            ergun_parameters,
-            properties,
-        )
-        k4 = self._derivatives(
-            [value + dr * slope for value, slope in zip(state_vector, k3, strict=True)],
-            radius_m + dr,
-            geometry,
-            ergun_parameters,
-            properties,
-        )
-        return [
-            value + dr / 6.0 * (s1 + 2.0 * s2 + 2.0 * s3 + s4)
-            for value, s1, s2, s3, s4 in zip(state_vector, k1, k2, k3, k4, strict=True)
-        ]
 
     def _derivatives(
         self,

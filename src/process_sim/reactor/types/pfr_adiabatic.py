@@ -8,8 +8,10 @@ from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIE
 from process_sim.constants.reaction_networks import ReactionNetwork, STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS, UniversalConstants
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core import config
 from process_sim.reactor.core.integrator import rk4_step
 from process_sim.reactor.core.models import ReactorProfilePoint, ReactorStageLog, ReactorState
+from process_sim.reactor.core.numba_reactor import can_use_numba_reactor_core, integrate_axial_numba
 from process_sim.reactor.core.pressure_drop import ErgunParameters, reynolds_over_one_minus_void
 from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed, ReactorStream
 from process_sim.reactor.core.thermodynamics import species_enthalpy_kj_per_kmol
@@ -98,42 +100,81 @@ class PfrAdiabaticReactor:
             universal=self.universal,
             ergun_parameters=ergun_parameters,
         )
-        for segment_index in range(segments):
-            state_vector = current_vector + [current_temperature_k, current_pressure_pa]
-            next_state = rk4_step(
-                state_vector=state_vector,
-                dz=dz,
-                derivative=lambda values: pfr_adiabatic_derivatives(values, balance_context),
+        if config.USE_NUMBA_REACTOR_CORE and can_use_numba_reactor_core(self.network, properties, self.universal):
+            integration = integrate_axial_numba(
+                initial_state=current_vector + [current_temperature_k, current_pressure_pa],
+                stage_length_m=stage_length_m,
+                cross_section_area_m2=cross_section_area_m2,
+                ergun_parameters=ergun_parameters,
+                segments=segments,
+                profile_stride=profile_stride,
             )
-            current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
-            current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
-            raw_pressure_pa = next_state[len(COMPONENT_ORDER) + 1]
-            pressure_positive_ok = pressure_positive_ok and raw_pressure_pa > 0.0
-            current_pressure_pa = max(raw_pressure_pa, 1.0)
-            current_stream = ReactorStream.from_vector_kmol_s(current_vector)
-            re_values.append(
-                self._re_over_one_minus_void(
-                    stream=current_stream,
-                    cross_section_area_m2=cross_section_area_m2,
-                    ergun_parameters=ergun_parameters,
-                    properties=properties,
+            current_vector = integration.final_state[: len(COMPONENT_ORDER)]
+            current_temperature_k = float(integration.final_state[len(COMPONENT_ORDER)])
+            current_pressure_pa = float(integration.final_state[len(COMPONENT_ORDER) + 1])
+            pressure_positive_ok = integration.pressure_positive_ok
+            re_values.extend(
+                (
+                    integration.min_re_over_one_minus_void,
+                    integration.max_re_over_one_minus_void,
                 )
             )
-            if (segment_index + 1) % profile_stride == 0 or segment_index == segments - 1:
-                axial_position_m = (segment_index + 1) * dz
+            for axial_position_m, state in zip(
+                integration.profile_positions_m,
+                integration.profile_states,
+                strict=True,
+            ):
+                current_stream = ReactorStream.from_vector_kmol_s(state[: len(COMPONENT_ORDER)])
                 self._append_profile_point(
                     profile_points=profile,
                     stage_index=stage_index,
-                    axial_position_m=axial_position_m,
-                    cumulative_length_m=cumulative_length_offset_m + axial_position_m,
-                    temperature_k=current_temperature_k,
-                    pressure_pa=current_pressure_pa,
+                    axial_position_m=float(axial_position_m),
+                    cumulative_length_m=cumulative_length_offset_m + float(axial_position_m),
+                    temperature_k=float(state[len(COMPONENT_ORDER)]),
+                    pressure_pa=float(state[len(COMPONENT_ORDER) + 1]),
                     stream=current_stream,
                     feed=feed,
                     cross_section_area_m2=cross_section_area_m2,
                     ergun_parameters=ergun_parameters,
                     properties=properties,
                 )
+        else:
+            for segment_index in range(segments):
+                state_vector = current_vector + [current_temperature_k, current_pressure_pa]
+                next_state = rk4_step(
+                    state_vector=state_vector,
+                    dz=dz,
+                    derivative=lambda values: pfr_adiabatic_derivatives(values, balance_context),
+                )
+                current_vector = [max(value, 0.0) for value in next_state[: len(COMPONENT_ORDER)]]
+                current_temperature_k = max(next_state[len(COMPONENT_ORDER)], 273.15)
+                raw_pressure_pa = next_state[len(COMPONENT_ORDER) + 1]
+                pressure_positive_ok = pressure_positive_ok and raw_pressure_pa > 0.0
+                current_pressure_pa = max(raw_pressure_pa, 1.0)
+                current_stream = ReactorStream.from_vector_kmol_s(current_vector)
+                re_values.append(
+                    self._re_over_one_minus_void(
+                        stream=current_stream,
+                        cross_section_area_m2=cross_section_area_m2,
+                        ergun_parameters=ergun_parameters,
+                        properties=properties,
+                    )
+                )
+                if (segment_index + 1) % profile_stride == 0 or segment_index == segments - 1:
+                    axial_position_m = (segment_index + 1) * dz
+                    self._append_profile_point(
+                        profile_points=profile,
+                        stage_index=stage_index,
+                        axial_position_m=axial_position_m,
+                        cumulative_length_m=cumulative_length_offset_m + axial_position_m,
+                        temperature_k=current_temperature_k,
+                        pressure_pa=current_pressure_pa,
+                        stream=current_stream,
+                        feed=feed,
+                        cross_section_area_m2=cross_section_area_m2,
+                        ergun_parameters=ergun_parameters,
+                        properties=properties,
+                    )
 
         outlet_stream = ReactorStream.from_vector_kmol_s(current_vector)
         outlet_velocity_m_per_s = self._superficial_velocity_m_per_s(

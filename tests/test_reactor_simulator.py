@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from process_sim.constants.physical_properties import SPECIES_PHYSICAL_PROPERTIES
@@ -6,6 +8,7 @@ from process_sim.constants.universal import UNIVERSAL_CONSTANTS
 from process_sim.reactor.cases.styrene_radial_default import RadialReactorCase
 from process_sim.reactor.cases.styrene_default import ReactorCase
 from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core import config
 from process_sim.reactor.core.models import RadialReactorRunConditions, ReactorRunConditions
 from process_sim.reactor.core.pressure_drop import ErgunParameters
 from process_sim.reactor.core.reaction import reaction_rates
@@ -37,8 +40,8 @@ def make_test_pfr_case() -> ReactorCase:
         conditions=ReactorRunConditions(
             pressure_kpa=200.0,
             stage_inlet_temperatures_c=(550.0, 550.0, 550.0),
-            stage_lengths_m=(1.0, 1.0, 1.0),
-            total_catalyst_volume_m3=12.0,
+            inlet_superficial_velocity_m_per_s=2.0,
+            stage_ld_ratios=(3.0, 3.0, 3.0),
             pellet_diameter_m=0.003,
             bed_void_fraction=0.4312,
             catalyst_bulk_density_kg_m3=1422.0,
@@ -59,7 +62,7 @@ def make_test_radial_case() -> RadialReactorCase:
             inlet_pressure_pa=200_000.0,
             stage_inlet_temperatures_k=(823.15, 823.15, 823.15),
             inlet_superficial_velocity_m_per_s=2.0,
-            bed_height_m=5.0,
+            center_channel_radius_m=1.0,
             bed_thicknesses_m=(0.45, 0.9, 0.9),
             pellet_diameter_m=0.003,
             bed_void_fraction=0.4312,
@@ -71,6 +74,39 @@ def make_test_radial_case() -> RadialReactorCase:
             segments_per_stage=12000,
             profile_points_per_stage=12,
         ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "case"),
+    [
+        (StagedAdiabaticPfrModel(), make_test_pfr_case()),
+        (StagedAdiabaticRadialFlowModel(), make_test_radial_case()),
+    ],
+)
+def test_numba_reactor_core_matches_python_path(
+    model: StagedAdiabaticPfrModel | StagedAdiabaticRadialFlowModel,
+    case: ReactorCase | RadialReactorCase,
+) -> None:
+    original = config.USE_NUMBA_REACTOR_CORE
+    case = replace(case, conditions=replace(case.conditions, segments_per_stage=100))
+    try:
+        config.USE_NUMBA_REACTOR_CORE = False
+        python_result = model.run(feed=case.feed, conditions=case.conditions)
+        config.USE_NUMBA_REACTOR_CORE = True
+        numba_result = model.run(feed=case.feed, conditions=case.conditions)
+    finally:
+        config.USE_NUMBA_REACTOR_CORE = original
+
+    assert numba_result.outlet.pressure_kpa == pytest.approx(python_result.outlet.pressure_kpa)
+    assert numba_result.outlet.temperature_c == pytest.approx(python_result.outlet.temperature_c)
+    assert numba_result.eb_conversion == pytest.approx(python_result.eb_conversion)
+    assert numba_result.styrene_selectivity == pytest.approx(python_result.styrene_selectivity)
+    assert numba_result.log.carbon_balance_error_fraction == pytest.approx(
+        python_result.log.carbon_balance_error_fraction
+    )
+    assert numba_result.log.hydrogen_balance_error_fraction == pytest.approx(
+        python_result.log.hydrogen_balance_error_fraction
     )
 
 
@@ -185,7 +221,8 @@ def test_staged_adiabatic_reactor_produces_stage_logs() -> None:
     assert len(result.log.stage_logs) == 3
     assert len(result.log.profile) > 3
     assert result.log.cross_section_area_m2 > 0.0
-    assert result.log.total_catalyst_volume_m3 == pytest.approx(case.conditions.total_catalyst_volume_m3)
+    assert result.log.total_catalyst_volume_m3 is not None
+    assert result.log.total_catalyst_volume_m3 > 0.0
     assert result.outlet.pressure_kpa < case.conditions.pressure_kpa
     assert result.log.reheat_pressure_drop_kpa == pytest.approx(40.0)
 
@@ -195,9 +232,9 @@ def test_pfr_pressure_positive_check_uses_unclipped_pressure() -> None:
     case = make_test_pfr_case()
     conditions = ReactorRunConditions(
         pressure_kpa=50.0,
-        stage_inlet_temperatures_c=(550.0,),
-        stage_lengths_m=(10.0,),
-        total_catalyst_volume_m3=0.1,
+        stage_inlet_temperatures_c=(550.0, 550.0),
+        inlet_superficial_velocity_m_per_s=2.0,
+        stage_ld_ratios=(4.0, 4.0),
         pellet_diameter_m=case.conditions.pellet_diameter_m,
         bed_void_fraction=case.conditions.bed_void_fraction,
         catalyst_bulk_density_kg_m3=case.conditions.catalyst_bulk_density_kg_m3,
@@ -279,6 +316,8 @@ def test_pfr_reactor_report_contains_design_sections() -> None:
     assert "equivalent diameter" in report
     assert "atom balance:" in report
     assert "constraints:" in report
+    assert "profile velocity 1-3 m/s" in report
+    assert "stage length <= 10 m" in report
 
 
 def test_radial_reactor_report_contains_design_sections() -> None:
@@ -295,4 +334,5 @@ def test_radial_reactor_report_contains_design_sections() -> None:
     assert "[Stage Outlet Molar Flows, kmol/h]" in report
     assert "atom balance:" in report
     assert "constraints:" in report
+    assert "bed outlet velocity >= 1 m/s" in report
     assert "reheat pressure drop" in report

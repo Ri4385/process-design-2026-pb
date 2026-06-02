@@ -164,11 +164,12 @@ def format_radial_reactor_report(feed: ReactorFeed, result: ReactorResult) -> st
         f"  catalyst mass  : {format_table_value(result.log.total_catalyst_mass_kg, 0)} kg",
         f"  max Re/(1-eps): {fmt(result.log.max_re_over_one_minus_void, 1)}",
         "  atom balance:",
-        f"    C error : {fmt_percent(result.log.carbon_balance_error_fraction)}",
-        f"    H error : {fmt_percent(result.log.hydrogen_balance_error_fraction)}",
+        f"    C error : {fmt_scientific_percent(result.log.carbon_balance_error_fraction)}",
+        f"    H error : {fmt_scientific_percent(result.log.hydrogen_balance_error_fraction)}",
         "  constraints:",
-        f"    outlet pressure >= 50 kPa : {format_ok(result.log.outlet_pressure_ok)}",
+        f"    outlet pressure >= 60 kPa : {format_ok(result.log.outlet_pressure_ok)}",
         f"    Re/(1-eps) < 500         : {format_ok(result.log.ergun_range_ok)}",
+        f"    bed outlet velocity >= 1 m/s : {format_ok(result.log.radial_bed_outlet_velocity_ok)}",
         f"    pressure positive        : {format_ok(result.log.pressure_positive_ok)}",
         f"    atom balance             : {format_ok(result.log.atom_balance_ok)}",
         "",
@@ -209,11 +210,13 @@ def format_pfr_reactor_report(feed: ReactorFeed, result: ReactorResult) -> str:
         f"  catalyst mass  : {format_table_value(result.log.total_catalyst_mass_kg, 0)} kg",
         f"  max Re/(1-eps): {fmt(result.log.max_re_over_one_minus_void, 1)}",
         "  atom balance:",
-        f"    C error : {fmt_percent(result.log.carbon_balance_error_fraction)}",
-        f"    H error : {fmt_percent(result.log.hydrogen_balance_error_fraction)}",
+        f"    C error : {fmt_scientific_percent(result.log.carbon_balance_error_fraction)}",
+        f"    H error : {fmt_scientific_percent(result.log.hydrogen_balance_error_fraction)}",
         "  constraints:",
-        f"    outlet pressure >= 50 kPa : {format_ok(result.log.outlet_pressure_ok)}",
+        f"    outlet pressure >= 60 kPa : {format_ok(result.log.outlet_pressure_ok)}",
         f"    Re/(1-eps) < 500         : {format_ok(result.log.ergun_range_ok)}",
+        f"    profile velocity 1-3 m/s : {format_ok(result.log.velocity_range_ok)}",
+        f"    stage length <= 10 m     : {format_ok(result.log.length_ok)}",
         f"    pressure positive        : {format_ok(result.log.pressure_positive_ok)}",
         f"    atom balance             : {format_ok(result.log.atom_balance_ok)}",
         "",
@@ -238,8 +241,9 @@ def format_pfr_stage_summary(stage_logs: tuple[ReactorStageLog, ...], cross_sect
         ("reactor pressure drop [kPa]", [log.reactor_pressure_drop_kpa for log in stage_logs], 3),
         ("reheat pressure drop [kPa]", [log.reheat_pressure_drop_kpa for log in stage_logs], 3),
         ("stage length [m]", [log.stage_length_m for log in stage_logs], 3),
-        ("cross section area [m2]", [cross_section_area_m2 for _ in stage_logs], 3),
-        ("equivalent diameter [m]", [equivalent_diameter_m for _ in stage_logs], 3),
+        ("cross section area [m2]", [log.cross_section_area_m2 or cross_section_area_m2 for log in stage_logs], 3),
+        ("equivalent diameter [m]", [log.equivalent_diameter_m or equivalent_diameter_m for log in stage_logs], 3),
+        ("L/D [-]", [log.ld_ratio for log in stage_logs], 3),
         ("catalyst volume [m3]", [log.catalyst_volume_m3 for log in stage_logs], 2),
         ("catalyst mass [kg]", [log.catalyst_mass_kg for log in stage_logs], 0),
         ("inlet velocity [m/s]", [log.inlet_superficial_velocity_m_per_s for log in stage_logs], 3),
@@ -268,6 +272,7 @@ def format_radial_stage_summary(stage_logs: tuple[ReactorStageLog, ...]) -> list
         ("inner radius [m]", [log.inner_radius_m for log in stage_logs], 3),
         ("inner diameter [m]", [optional_double(log.inner_radius_m) for log in stage_logs], 3),
         ("outer radius [m]", [log.outer_radius_m for log in stage_logs], 3),
+        ("reactor diameter [m]", [optional_double(log.outer_radius_m) for log in stage_logs], 3),
         ("bed height [m]", [log.bed_height_m for log in stage_logs], 3),
         ("bed thickness [m]", [log.bed_thickness_m for log in stage_logs], 3),
         ("catalyst volume [m3]", [log.catalyst_volume_m3 for log in stage_logs], 2),
@@ -606,3 +611,10 @@ def fmt_percent(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value * 100.0:.3f} %"
+
+
+def fmt_scientific_percent(value: float | None) -> str:
+    """比率を科学表記の percent 表示にする。"""
+    if value is None:
+        return "n/a"
+    return f"{value * 100.0:.3e} %"

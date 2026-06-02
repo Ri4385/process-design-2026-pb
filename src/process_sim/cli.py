@@ -50,7 +50,7 @@ def case_from_payload(payload: dict[str, Any]) -> ReactorCase:
     """辞書から反応器ケースを作る。"""
     conditions_payload = dict(payload["conditions"])
     conditions_payload["stage_inlet_temperatures_c"] = tuple(conditions_payload["stage_inlet_temperatures_c"])
-    conditions_payload["stage_lengths_m"] = tuple(conditions_payload["stage_lengths_m"])
+    conditions_payload["stage_ld_ratios"] = tuple(conditions_payload["stage_ld_ratios"])
     return ReactorCase(
         feed=ReactorFeed(**payload["feed"]),
         conditions=ReactorRunConditions(**conditions_payload),

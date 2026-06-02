@@ -14,7 +14,7 @@ class ErgunParameters:
     catalyst_bulk_density_kg_m3: float
     ergun_a: float = 1.75
     ergun_b: float = 150.0
-    gas_viscosity_pa_s: float = 4.0e-5
+    gas_viscosity_pa_s: float = 2.6e-5
 
     def __post_init__(self) -> None:
         """圧損パラメータの範囲を確認する。"""

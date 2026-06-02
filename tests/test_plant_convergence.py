@@ -32,8 +32,8 @@ def reactor_case(feed: ReactorFeed) -> ReactorCase:
         conditions=ReactorRunConditions(
             pressure_kpa=200.0,
             stage_inlet_temperatures_c=(550.0,),
-            stage_lengths_m=(1.0,),
-            total_catalyst_volume_m3=1.0,
+            inlet_superficial_velocity_m_per_s=2.0,
+            stage_ld_ratios=(3.0,),
             pellet_diameter_m=0.003,
             bed_void_fraction=0.4,
             catalyst_bulk_density_kg_m3=1400.0,
@@ -66,7 +66,7 @@ def test_plant_convergence_uses_startup_feed_then_previous_recycle_output() -> N
 
     feed_plan = PlantFeedPlan(
         startup_reactor_feed=ReactorFeed(eb=480.0, steam=2370.0),
-        steady_fresh_feed=FreshFeed(hydrocarbon_kmol_h=265.0 / 0.995, steam_kmol_h=28.0),
+        steady_fresh_feed=FreshFeed(hydrocarbon_kmol_h=265.0 / 0.99, steam_kmol_h=28.0),
     )
 
     result = run_plant_convergence(
@@ -82,6 +82,7 @@ def test_plant_convergence_uses_startup_feed_then_previous_recycle_output() -> N
     assert feeds[0].steam == pytest.approx(2370.0)
     assert feeds[1].eb == pytest.approx(465.0)
     assert feeds[1].steam == pytest.approx(2328.0)
-    assert feeds[1].benzene == pytest.approx(265.0 / 0.995 * 0.005 + 2.0)
+    assert feeds[1].benzene == pytest.approx(265.0 / 0.99 * 0.005 + 2.0)
+    assert feeds[1].toluene == pytest.approx(265.0 / 0.99 * 0.005)
     assert feeds[1].hydrogen == pytest.approx(4.0)
     assert result.final_iteration.sm_product_kmol_h == pytest.approx(1.0)

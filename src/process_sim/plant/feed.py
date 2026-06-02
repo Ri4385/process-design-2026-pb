@@ -34,8 +34,9 @@ HYSYS_COMPONENT_TO_REACTOR_FIELD: dict[str, str] = {
 class FreshFeedPolicy:
     """fresh 原料から反応器成分流量を作るための設定。"""
 
-    eb_mol_fraction: float = 0.995
+    eb_mol_fraction: float = 0.99
     benzene_mol_fraction: float = 0.005
+    toluene_mol_fraction: float = 0.005
     steam_to_fresh_eb_ratio: float = 5.0
 
 
@@ -91,6 +92,7 @@ def fresh_feed_to_reactor_feed(
         eb=fresh_feed.hydrocarbon_kmol_h * policy.eb_mol_fraction,
         steam=fresh_feed.steam_kmol_h,
         benzene=fresh_feed.hydrocarbon_kmol_h * policy.benzene_mol_fraction,
+        toluene=fresh_feed.hydrocarbon_kmol_h * policy.toluene_mol_fraction,
     )
 
 
