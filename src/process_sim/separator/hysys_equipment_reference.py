@@ -107,10 +107,16 @@ DECANTERS: tuple[DecanterReference, ...] = (
 
 COOLERS: tuple[CoolerReference, ...] = (
     CoolerReference(
-        id="decanter_1_cooler",
-        display_name="デカンター1基目冷却器",
-        operation_name="C-1",
-        energy_name="CQ-1",
+        id="decanter_1_cooler1",
+        display_name="デカンター1基目冷却器 ガス",
+        operation_name="C-11",
+        energy_name="CQ-11",
+    ),
+    CoolerReference(
+        id="decanter_1_cooler2",
+        display_name="デカンター1基目冷却器 凝縮",
+        operation_name="C-12",
+        energy_name="CQ-12",
     ),
     CoolerReference(
         id="decanter_2_cooler",
@@ -140,16 +146,34 @@ COOLERS: tuple[CoolerReference, ...] = (
 
 HEATERS: tuple[HeaterReference, ...] = (
     HeaterReference(
-        id="steam_inlet_heater",
-        display_name="入口加熱 steam",
-        operation_name="H-2",
+        id="steam_inlet_heater1",
+        display_name="入口加熱 steam 液",
+        operation_name="H-21",
         energy_name="E-heat-water",
     ),
     HeaterReference(
-        id="eb_inlet_heater",
-        display_name="入口加熱 EB",
-        operation_name="H-1",
-        energy_name="E-heat-EB",
+        id="steam_inlet_heater2",
+        display_name="入口加熱 steam 蒸発",
+        operation_name="H-22",
+        energy_name="E-heat-water2",
+    ),
+    HeaterReference(
+        id="steam_inlet_heater3",
+        display_name="入口加熱 steam ガス",
+        operation_name="H-23",
+        energy_name="E-heat-water3",
+    ),
+    HeaterReference(
+        id="eb_inlet_heater1",
+        display_name="入口加熱 EB 液",
+        operation_name="H-11",
+        energy_name="E-heat-eb",
+    ),
+    HeaterReference(
+        id="eb_inlet_heater2",
+        display_name="入口加熱 EB 蒸発",
+        operation_name="H-12",
+        energy_name="E-heat-eb2",
     ),
     HeaterReference(
         id="reactor_trim_heater",
