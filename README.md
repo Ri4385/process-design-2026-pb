@@ -54,12 +54,13 @@
 - 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できる。
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
 - production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
+- HYSYS case を開いたまま recycle 収束後に全体コスト評価まで行う入口は `uv run fast-plant-convergence-cost` で実行できる。
 - radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
 - HYSYS ケースの調査用スクリプトと部分最適化スクリプトは `scripts/` にある。
 - 分離機は HYSYS ケース側に構築されており、Python 側には HYSYS I/O と機器読み取り用のモジュールがある。
 - 既定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、確認結果を標準出力へ表示できる。
 - `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
-- 経済収支計算は暫定実装があり、今後整理する対象である。
+- `plant/economics.py` には暫定的な経済計算が残っている。全体プラントのコスト評価は `plant/cost/` 側で扱う。
 
 ## 参考資料
 
@@ -173,7 +174,8 @@ src/process_sim/
   plant/
     const.py                         # plant 共通固定値
     convergence.py                   # plant recycle 収束計算
-    economics.py                     # plant 経済収支
+    economics.py                     # 既存の暫定経済計算
+    fast_convergence_cost.py         # HYSYS session 再利用 convergence と全体コスト評価
     fast_convergence.py              # HYSYS session 再利用 convergence
     fast_production_target.py        # HYSYS session 再利用 production target
     feed.py                           # plant feed 作成
@@ -182,6 +184,16 @@ src/process_sim/
     runner.py                         # plant 実行入口
     session_runner.py                 # HYSYS session runner
     summary.py                        # plant 結果要約
+    cost/
+      constants.py                    # コスト評価の単価、係数、utility 条件
+      common.py                       # 年間金額、LMTD、伝熱面積などの共通計算
+      equipment.py                    # 装置費、熱回収器面積、建設費の計算
+      evaluation.py                   # 全体プラント収支の組み立て
+      log.py                          # コスト評価ログの整形
+      models.py                       # コスト評価結果と T-Q 用モデル
+      revenue.py                      # 製品収入と原料費
+      tq.py                           # T-Q stream と外部 utility load の生成
+      utility.py                      # steam、冷却水、冷媒、電力、燃料費
 ```
 
 ### ディレクトリ詳細
@@ -206,6 +218,8 @@ src/process_sim/
   固定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、明示的な Python モデルへ変換する。読み取れない必須値は補完せず、例外として扱う。
 - `src/process_sim/plant/`
   反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱う。
+- `src/process_sim/plant/cost/`
+  収束後の `PlantConvergenceResult`、`ReactorResult`、`ProcessEquipment` から、収入、原料費、装置費、utility、固定費、T-Q 用 stream、年間収支を計算する。既存の `plant/economics.py` とは分けて管理する。
 - `scripts/`
   実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行、デカンターと蒸留塔の部分最適化を置く。部分最適化に固有の HYSYS ケース、診断 JSON、図も各ディレクトリ内で管理する。
 - `scripts/reactor_pareto_v2/`
@@ -333,6 +347,14 @@ uv run fast-plant-convergence
 ```
 
 この入口も CLI 引数を持たない。production target と convergence で同じ HYSYS session を使い、途中で case を開き直さない。HYSYS 表示は `False` 固定である。
+
+HYSYS case を開いたまま production target、recycle convergence、機器読み取り、全体コスト評価まで連続実行する場合は、以下を使う。
+
+```powershell
+uv run fast-plant-convergence-cost
+```
+
+この入口も CLI 引数を持たない。`fast-plant-convergence` と同じ収束計算後に、同じ HYSYS session から `ProcessEquipment` を読み取り、`plant/cost/` で年間収支を評価する。出力には、コスト Summary、機器詳細、熱回収、T-Q stream、熱回収後の外部 utility load を含める。
 
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
 
