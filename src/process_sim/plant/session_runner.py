@@ -22,6 +22,8 @@ from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RAD
 from process_sim.reactor.cases.styrene_default import DEFAULT_STYRENE_REACTOR_CASE, ReactorCase
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
 from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
+from process_sim.separator.equipment import ProcessEquipment
+from process_sim.separator.equipment_reader.process_equipment import read_process_equipment
 from process_sim.separator.hysys_io import HysysSeparationSession
 
 
@@ -41,6 +43,7 @@ class OpenHysysPlantRunner:
         self.reactor_model: ReactorModelName = reactor_model
         self.log_reactor_detail: bool = log_reactor_detail
         self._separator_session: HysysSeparationSession | None = None
+        self.last_reactor_result: Any | None = None
 
     def __enter__(self) -> OpenHysysPlantRunner:
         """HYSYS case を非表示で開く。"""
@@ -77,6 +80,7 @@ class OpenHysysPlantRunner:
         reactor_started_at = time.perf_counter()
         logger.info("reactor run started")
         reactor_result = run_reactor_case(reactor_case=reactor_case, reactor_model=selected_model)
+        self.last_reactor_result = reactor_result
         logger.info("reactor run finished in %.2f s", time.perf_counter() - reactor_started_at)
         log_reactor_summary(
             reactor_case=reactor_case,
@@ -111,6 +115,12 @@ class OpenHysysPlantRunner:
         logger.info("\n%s", format_recycle_product_component_summary(record))
         logger.info("plant run finished in %.2f s", time.perf_counter() - plant_started_at)
         return record
+
+    def read_process_equipment(self) -> ProcessEquipment:
+        """開いている HYSYS case から分離系機器を読み取る。"""
+        if self._separator_session is None:
+            raise RuntimeError("OpenHysysPlantRunner is not open")
+        return read_process_equipment(self._separator_session.simulation_case)
 
 
 def selected_reactor_model(

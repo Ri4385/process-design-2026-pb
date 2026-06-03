@@ -555,3 +555,10 @@ class HysysSeparationSession:
             output_stream_names=self.output_stream_names,
         )
         return records, {**metadata, "hysys_session_reused": True}
+
+    @property
+    def simulation_case(self) -> Any:
+        """開いている HYSYS case を application boundary 内で返す。"""
+        if self._simulation_case is None:
+            raise RuntimeError("HYSYS session is not open")
+        return self._simulation_case
