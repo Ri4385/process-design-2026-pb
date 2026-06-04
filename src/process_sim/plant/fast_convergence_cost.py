@@ -7,6 +7,8 @@ from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH, DEFAULT_TARGET_SM_K
 from process_sim.plant.convergence import format_plant_convergence_result, run_production_target_convergence
 from process_sim.plant.cost.evaluation import evaluate_whole_plant_cost
 from process_sim.plant.cost.log import format_whole_plant_cost_report
+from process_sim.plant.hysys_controls import build_inlet_control_plan
+from process_sim.plant.production_target import default_reactor_case_for_model
 from process_sim.plant.runner import configure_logging
 from process_sim.plant.session_runner import OpenHysysPlantRunner
 
@@ -17,6 +19,7 @@ FAST_COST_REACTOR_MODEL: ReactorModelName = "radial"
 def fast_plant_convergence_cost_main() -> None:
     """HYSYS case を開いたまま収束計算、機器読み取り、コスト評価を行う。"""
     configure_logging()
+    base_reactor_case = default_reactor_case_for_model(FAST_COST_REACTOR_MODEL)
     with OpenHysysPlantRunner(
         case_path=DEFAULT_HYSYS_CASE_PATH,
         reactor_model=FAST_COST_REACTOR_MODEL,
@@ -26,6 +29,13 @@ def fast_plant_convergence_cost_main() -> None:
             production_target_runner=runner,
             convergence_runner=runner,
             reactor_model=FAST_COST_REACTOR_MODEL,
+            base_reactor_case=base_reactor_case,
+        )
+        runner.apply_post_convergence_controls(
+            build_inlet_control_plan(
+                convergence_result=convergence_result,
+                base_reactor_case=base_reactor_case,
+            )
         )
         equipment = runner.read_process_equipment()
     cost_result = evaluate_whole_plant_cost(

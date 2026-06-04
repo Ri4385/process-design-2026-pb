@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from types import TracebackType
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from process_sim.cli import ReactorModelName
 from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH
@@ -24,7 +24,10 @@ from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrMod
 from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
 from process_sim.separator.equipment import ProcessEquipment
 from process_sim.separator.equipment_reader.process_equipment import read_process_equipment
-from process_sim.separator.hysys_io import HysysSeparationSession
+from process_sim.separator.hysys_io import HysysSeparationSession, apply_hysys_control_plan
+
+if TYPE_CHECKING:
+    from process_sim.plant.hysys_controls import HysysControlPlan
 
 
 logger = logging.getLogger(__name__)
@@ -121,6 +124,18 @@ class OpenHysysPlantRunner:
         if self._separator_session is None:
             raise RuntimeError("OpenHysysPlantRunner is not open")
         return read_process_equipment(self._separator_session.simulation_case)
+
+    def apply_post_convergence_controls(self, plan: "HysysControlPlan") -> None:
+        """収束後の HYSYS 操作条件を書き込み、readback で確認する。"""
+        if self._separator_session is None:
+            raise RuntimeError("OpenHysysPlantRunner is not open")
+        from process_sim.plant.hysys_controls import format_hysys_control_readback
+
+        readback = apply_hysys_control_plan(
+            simulation_case=self._separator_session.simulation_case,
+            plan=plan,
+        )
+        logger.info("\n%s", format_hysys_control_readback(plan=plan, readback=readback))
 
 
 def selected_reactor_model(

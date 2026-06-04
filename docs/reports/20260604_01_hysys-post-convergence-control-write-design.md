@@ -170,8 +170,8 @@ fresh EB と fresh water の条件は確定値として別定数に置く。recy
 
 ```text
 component molar flow:
-  EB = steady_fresh_feed.eb
-  Benzene = steady_fresh_feed.eb * 0.005 / 0.995
+  EB = steady_fresh_feed.hydrocarbon_kmol_h * 0.995
+  Benzene = steady_fresh_feed.hydrocarbon_kmol_h * 0.005
   others = 0
 
 temperature:

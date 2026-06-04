@@ -6,7 +6,7 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 import time
 from types import TracebackType
-from typing import Any, Generator, Sequence
+from typing import TYPE_CHECKING, Any, Generator, Sequence
 
 import pythoncom
 import pywintypes
@@ -14,6 +14,15 @@ import win32com.client
 
 from process_sim.plant.models import PLANT_STREAM_NAMES, PlantStreamRecord
 from process_sim.reactor.core.stream import ReactorStream
+
+if TYPE_CHECKING:
+    from process_sim.plant.hysys_controls import (
+        FullMaterialStreamWriteSpec,
+        HysysControlPlan,
+        OperationWriteSpec,
+        PressureMaterialStreamWriteSpec,
+        TemperatureMaterialStreamWriteSpec,
+    )
 
 
 PROG_IDS: tuple[str, ...] = (
@@ -43,6 +52,11 @@ HYSYS_COMPONENT_TO_REACTOR_FIELD: dict[str, str] = {
     "hydrogen": "hydrogen",
     "h2": "hydrogen",
 }
+
+TEMPERATURE_READBACK_ABS_TOLERANCE_C = 1.0e-3
+PRESSURE_READBACK_ABS_TOLERANCE_KPA = 1.0e-3
+FLOW_READBACK_ABS_TOLERANCE_KMOL_H = 1.0e-6
+FLOW_READBACK_REL_TOLERANCE = 1.0e-6
 
 
 def normalized_component_name(name: str) -> str:
@@ -265,6 +279,82 @@ def set_component_molar_flows(stream: Any, component_names: Sequence[str], react
     raise RuntimeError("成分モル流量を書き込めませんでした。\n" + "\n".join(errors))
 
 
+def set_component_molar_flows_from_mapping(
+    stream: Any,
+    component_names: Sequence[str],
+    component_flows_kmol_h: dict[str, float],
+) -> None:
+    """成分モル流量 mapping を HYSYS stream へ書き込む。"""
+    validate_component_flow_mapping(component_names=component_names, component_flows_kmol_h=component_flows_kmol_h)
+    normalized_flows = normalized_component_flow_mapping(component_flows_kmol_h)
+    values = [
+        component_flow_for_hysys_component(component_name=name, normalized_flows=normalized_flows)
+        for name in component_names
+    ]
+    quantity = getattr(stream, "ComponentMolarFlow", None)
+    errors: list[str] = []
+    if quantity is not None:
+        for unit in ("kgmole/h", "kmol/h"):
+            try:
+                quantity.SetValues(values, unit)
+                return
+            except Exception as exc:
+                errors.append(f"ComponentMolarFlow.SetValues({unit}): {exc}")
+
+    if hasattr(stream, "ComponentMolarFlowValue"):
+        try:
+            stream.ComponentMolarFlowValue = values
+            return
+        except Exception as exc:
+            errors.append(f"ComponentMolarFlowValue: {exc}")
+
+    raise RuntimeError("成分モル流量を書き込めませんでした。\n" + "\n".join(errors))
+
+
+def validate_component_flow_mapping(
+    component_names: Sequence[str],
+    component_flows_kmol_h: dict[str, float],
+) -> None:
+    """書き込み成分が HYSYS 成分名へ対応できることを確認する。"""
+    unmatched_keys = [
+        key
+        for key in component_flows_kmol_h
+        if not any(component_key_matches_hysys_component(key, component_name) for component_name in component_names)
+    ]
+    if unmatched_keys:
+        raise RuntimeError(f"HYSYS 成分へ対応できない書き込み成分があります: {', '.join(unmatched_keys)}")
+
+
+def component_key_matches_hysys_component(component_key: str, hysys_component_name: str) -> bool:
+    """Python 側成分キーが HYSYS 成分に対応するか判定する。"""
+    normalized_key = normalized_component_name(component_key)
+    normalized_hysys_name = normalized_component_name(hysys_component_name)
+    if normalized_key == normalized_hysys_name:
+        return True
+    reactor_field = HYSYS_COMPONENT_TO_REACTOR_FIELD.get(normalized_hysys_name)
+    return reactor_field == normalized_key
+
+
+def normalized_component_flow_mapping(component_flows_kmol_h: dict[str, float]) -> dict[str, float]:
+    """成分流量 mapping の key を正規化する。"""
+    return {
+        normalized_component_name(component_name): float(flow_kmol_h)
+        for component_name, flow_kmol_h in component_flows_kmol_h.items()
+    }
+
+
+def component_flow_for_hysys_component(component_name: str, normalized_flows: dict[str, float]) -> float:
+    """HYSYS 成分名に対応する書き込み流量を返す。"""
+    normalized_name = normalized_component_name(component_name)
+    direct_value = normalized_flows.get(normalized_name)
+    if direct_value is not None:
+        return direct_value
+    reactor_field = HYSYS_COMPONENT_TO_REACTOR_FIELD.get(normalized_name)
+    if reactor_field is None:
+        return 0.0
+    return normalized_flows.get(reactor_field, 0.0)
+
+
 def get_quantity(stream: Any, attr_name: str, units: Sequence[str]) -> float | None:
     """温度や圧力などの単一物理量を読み取る。"""
     quantity = getattr(stream, attr_name, None)
@@ -352,6 +442,168 @@ def read_material_stream_record(flowsheet: Any, stream_name: str) -> PlantStream
         component_molar_flow_kmol_h=component_value_map(component_names, get_component_molar_flows(stream)),
         component_molar_fraction=component_value_map(component_names, get_component_molar_fractions(stream)),
     )
+
+
+def write_full_material_stream_spec(flowsheet: Any, spec: "FullMaterialStreamWriteSpec") -> None:
+    """Material stream へ組成、温度、圧力を書き込む。"""
+    stream = get_material_stream(flowsheet, spec.stream_name)
+    component_names = get_component_names(stream, flowsheet)
+    set_quantity(stream, "Temperature", spec.temperature_c, ("C", "degC"))
+    set_quantity(stream, "Pressure", spec.pressure_kpa, ("kPa",))
+    set_component_molar_flows_from_mapping(
+        stream=stream,
+        component_names=component_names,
+        component_flows_kmol_h=spec.component_molar_flow.values,
+    )
+
+
+def write_pressure_material_stream_spec(flowsheet: Any, spec: "PressureMaterialStreamWriteSpec") -> None:
+    """Material stream へ圧力だけを書き込む。"""
+    stream = get_material_stream(flowsheet, spec.stream_name)
+    set_quantity(stream, "Pressure", spec.pressure_kpa, ("kPa",))
+
+
+def write_temperature_material_stream_spec(flowsheet: Any, spec: "TemperatureMaterialStreamWriteSpec") -> None:
+    """Material stream へ温度だけを書き込む。"""
+    stream = get_material_stream(flowsheet, spec.stream_name)
+    set_quantity(stream, "Temperature", spec.temperature_c, ("C", "degC"))
+
+
+def write_operation_spec(flowsheet: Any, spec: "OperationWriteSpec") -> None:
+    """HYSYS operation へ単一操作変数を書き込む。"""
+    operation = get_operation(flowsheet, spec.operation_name)
+    set_quantity(operation, spec.variable_name, spec.value, (spec.unit,))
+
+
+def apply_hysys_control_plan(
+    simulation_case: Any,
+    plan: "HysysControlPlan",
+) -> dict[str, PlantStreamRecord]:
+    """HYSYS case へ操作条件を書き込み、readback 検証結果を返す。"""
+    flowsheet = get_flowsheet(simulation_case)
+    for spec in plan.full_material_streams:
+        write_full_material_stream_spec(flowsheet=flowsheet, spec=spec)
+    for spec in plan.pressure_material_streams:
+        write_pressure_material_stream_spec(flowsheet=flowsheet, spec=spec)
+    for spec in plan.temperature_material_streams:
+        write_temperature_material_stream_spec(flowsheet=flowsheet, spec=spec)
+    for spec in plan.operations:
+        write_operation_spec(flowsheet=flowsheet, spec=spec)
+
+    wait_for_hysys_calculation(simulation_case)
+    readback = readback_hysys_control_plan(simulation_case=simulation_case, plan=plan)
+    validate_hysys_control_readback(plan=plan, readback=readback)
+    return readback
+
+
+def readback_hysys_control_plan(
+    simulation_case: Any,
+    plan: "HysysControlPlan",
+) -> dict[str, PlantStreamRecord]:
+    """書き込み対象 stream を HYSYS から読み直す。"""
+    flowsheet = get_flowsheet(simulation_case)
+    stream_names = sorted(
+        {
+            spec.stream_name
+            for spec in (
+                *plan.full_material_streams,
+                *plan.pressure_material_streams,
+                *plan.temperature_material_streams,
+            )
+        }
+    )
+    return {
+        stream_name: read_material_stream_record(flowsheet=flowsheet, stream_name=stream_name)
+        for stream_name in stream_names
+    }
+
+
+def validate_hysys_control_readback(
+    plan: "HysysControlPlan",
+    readback: dict[str, PlantStreamRecord],
+) -> None:
+    """書き込み plan と readback の一致を確認する。"""
+    for spec in plan.full_material_streams:
+        record = require_readback_stream(readback=readback, stream_name=spec.stream_name)
+        validate_temperature(
+            actual=record.temperature_c,
+            expected=spec.temperature_c,
+            label=f"{spec.stream_name} temperature",
+        )
+        validate_pressure(
+            actual=record.pressure_kpa,
+            expected=spec.pressure_kpa,
+            label=f"{spec.stream_name} pressure",
+        )
+        validate_component_molar_flow_readback(
+            record=record,
+            expected_flows=spec.component_molar_flow.values,
+        )
+    for spec in plan.pressure_material_streams:
+        record = require_readback_stream(readback=readback, stream_name=spec.stream_name)
+        validate_pressure(
+            actual=record.pressure_kpa,
+            expected=spec.pressure_kpa,
+            label=f"{spec.stream_name} pressure",
+        )
+    for spec in plan.temperature_material_streams:
+        record = require_readback_stream(readback=readback, stream_name=spec.stream_name)
+        validate_temperature(
+            actual=record.temperature_c,
+            expected=spec.temperature_c,
+            label=f"{spec.stream_name} temperature",
+        )
+
+
+def require_readback_stream(
+    readback: dict[str, PlantStreamRecord],
+    stream_name: str,
+) -> PlantStreamRecord:
+    """readback された必須 stream を返す。"""
+    record = readback.get(stream_name)
+    if record is None:
+        raise RuntimeError(f"{stream_name} readback is missing")
+    return record
+
+
+def validate_temperature(actual: float | None, expected: float, label: str) -> None:
+    """温度 readback の一致を確認する。"""
+    if actual is None:
+        raise RuntimeError(f"{label} readback is missing")
+    if abs(actual - expected) > TEMPERATURE_READBACK_ABS_TOLERANCE_C:
+        raise RuntimeError(f"{label} readback mismatch: expected={expected}, actual={actual}")
+
+
+def validate_pressure(actual: float | None, expected: float, label: str) -> None:
+    """圧力 readback の一致を確認する。"""
+    if actual is None:
+        raise RuntimeError(f"{label} readback is missing")
+    if abs(actual - expected) > PRESSURE_READBACK_ABS_TOLERANCE_KPA:
+        raise RuntimeError(f"{label} readback mismatch: expected={expected}, actual={actual}")
+
+
+def validate_component_molar_flow_readback(
+    record: PlantStreamRecord,
+    expected_flows: dict[str, float],
+) -> None:
+    """成分モル流量 readback の一致を確認する。"""
+    normalized_expected = normalized_component_flow_mapping(expected_flows)
+    for component_name, actual_flow in record.component_molar_flow_kmol_h.items():
+        expected_flow = component_flow_for_hysys_component(
+            component_name=component_name,
+            normalized_flows=normalized_expected,
+        )
+        if not flows_close(actual=actual_flow, expected=expected_flow):
+            raise RuntimeError(
+                f"{record.name} {component_name} flow readback mismatch: "
+                f"expected={expected_flow}, actual={actual_flow}"
+            )
+
+
+def flows_close(actual: float, expected: float) -> bool:
+    """成分モル流量の一致判定を返す。"""
+    tolerance = FLOW_READBACK_ABS_TOLERANCE_KMOL_H + FLOW_READBACK_REL_TOLERANCE * abs(expected)
+    return abs(actual - expected) <= tolerance
 
 
 def write_reactor_outlet(
