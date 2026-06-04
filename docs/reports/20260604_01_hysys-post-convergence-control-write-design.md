@@ -12,6 +12,13 @@
 
 この段階では、HYSYS の収束計算ごとに入口条件を書き込まない。recycle 収束計算が終わった後、機器情報とコストを読む直前に一度だけ書き込む。
 
+原料条件は確定条件として扱う。
+
+| 対象 | 組成 | 温度 | 圧力 |
+|---|---|---:|---:|
+| 原料 EB | EB 99.5 mol%、B 0.5 mol% | 30 ℃ | 101.3 kPa |
+| 原料水 | H2O 100 mol% | 30 ℃ | 300 kPa |
+
 ## 背景
 
 現行 HYSYS case では、分離器系と入口加熱系が独立して存在している。分離器系には反応器出口を書き込み、分離計算を繰り返して recycle 収束を取っている。一方で、入口加熱系は既存 case に固定された状態を読んでいる。
@@ -36,6 +43,8 @@ fast-plant-convergence-cost
 `run_production_target_convergence()` の内部では、従来どおり反応器出口 stream だけを書き込む。入口加熱系の stream、蒸留塔還流比、デカンター温度は書き込まない。
 
 `runner.apply_post_convergence_controls()` は、収束済みの `PlantConvergenceResult` と最終反応器条件から `control_plan` を作り、HYSYS case に一度だけ適用する。適用後に HYSYS solver を走らせ、計算完了後の状態から `read_process_equipment()` を呼ぶ。
+
+書き込み後は、対象 stream を HYSYS から読み直す。書き込んだ温度、圧力、成分モル流量が readback 結果と一致することを確認してから、機器情報の読み取りとコスト評価へ進む。
 
 ## 書き込み対象
 
@@ -63,10 +72,12 @@ fast-plant-convergence-cost
 
 | 操作対象 | 書き込み内容 | 備考 |
 |---|---|---|
-| 蒸留塔 | 還流比 | 対象塔と HYSYS operation 名は参照定義で管理する |
-| デカンター1基目 | 温度 | 1基目の冷却温度を操作変数にする |
+| 蒸留塔 | 還流比 | 対象塔と HYSYS operation 名は既存の `DISTILLATION_COLUMNS` を使う |
+| デカンター1基目 | 温度 | 1基目の冷却温度を将来の操作変数にする |
 
 これらは入口 stream とは種類が異なるが、同じ `HysysControlPlan` に入れてまとめて適用する。入口条件専用の実装にすると、後続の最適化で再度書き込み基盤を作る必要があるためである。
+
+ただし、第二段階で実装するのは入口条件の書き込みまでとする。蒸留塔還流比とデカンター1基目温度は、クラス設計と拡張点だけを用意し、実際の書き込み実装は入口書き込み確認後に行う。
 
 ## 採用方針
 
@@ -83,20 +94,33 @@ HYSYS 書き込みは、`separator/hysys_io.py` に低レベル関数、`plant/h
 `pydantic.BaseModel` を使い、書き込み指示を明示的なモデルとして表す。
 
 ```python
-class ComponentSpec(BaseModel):
-    """HYSYS stream へ書き込む成分モル流量またはモル分率。"""
+class ComponentMolarFlowSpec(BaseModel):
+    """HYSYS stream へ書き込む成分モル流量。"""
 
     values: dict[str, float]
-    basis: Literal["molar_flow_kmol_h", "molar_fraction"]
 
 
-class MaterialStreamWriteSpec(BaseModel):
-    """Material stream への書き込み条件。"""
+class FullMaterialStreamWriteSpec(BaseModel):
+    """Material stream へ組成、温度、圧力を書き込む条件。"""
 
     stream_name: str
-    temperature_c: float | None = None
-    pressure_kpa: float | None = None
-    component_spec: ComponentSpec | None = None
+    temperature_c: float
+    pressure_kpa: float
+    component_molar_flow: ComponentMolarFlowSpec
+
+
+class PressureMaterialStreamWriteSpec(BaseModel):
+    """Material stream へ圧力だけを書き込む条件。"""
+
+    stream_name: str
+    pressure_kpa: float
+
+
+class TemperatureMaterialStreamWriteSpec(BaseModel):
+    """Material stream へ温度だけを書き込む条件。"""
+
+    stream_name: str
+    temperature_c: float
 
 
 class OperationWriteSpec(BaseModel):
@@ -105,17 +129,21 @@ class OperationWriteSpec(BaseModel):
     operation_name: str
     variable_name: str
     value: float
-    unit: str | None = None
+    unit: str
 
 
 class HysysControlPlan(BaseModel):
     """収束後に HYSYS case へ適用する操作条件一式。"""
 
-    material_streams: tuple[MaterialStreamWriteSpec, ...] = ()
+    full_material_streams: tuple[FullMaterialStreamWriteSpec, ...] = ()
+    pressure_material_streams: tuple[PressureMaterialStreamWriteSpec, ...] = ()
+    temperature_material_streams: tuple[TemperatureMaterialStreamWriteSpec, ...] = ()
     operations: tuple[OperationWriteSpec, ...] = ()
 ```
 
-`ComponentSpec` は、入口 feed では成分モル流量、将来の必要に応じてモル分率も扱える形にする。今回の主用途では、fresh feed と recycle stream の流量整合を保つ必要があるため、成分モル流量を書き込む方を基本とする。
+書き込み対象ごとに別クラスを使い、`None` で「書き込まない項目」を表現しない。組成、温度、圧力をまとめて書く stream は `FullMaterialStreamWriteSpec`、圧力だけの stream は `PressureMaterialStreamWriteSpec`、温度だけの stream は `TemperatureMaterialStreamWriteSpec` に分ける。
+
+モル分率を書き込む予定はないため、成分指定は成分モル流量だけに限定する。
 
 ### 入口条件モデル
 
@@ -125,18 +153,12 @@ class HysysControlPlan(BaseModel):
 class InletConditionSettings(BaseModel):
     """入口加熱系へ書き込む設計条件。"""
 
-    fresh_eb_temperature_c: float
-    fresh_eb_pressure_kpa: float
-    fresh_water_temperature_c: float
-    fresh_water_pressure_kpa: float
-    recycle_eb_pressure_kpa: float | None = None
-    recycle_water_pressure_kpa: float | None = None
     reactor_inlet_temperature_c: float
     reactor_inlet_pressure_kpa: float
     pump_discharge_margin_kpa: float = 20.0
 ```
 
-recycle EB と recycle water の温度は、最終 iteration の `eb_recycle`、`water_recycle` stream から読む。recycle 圧力は、ユーザーが固定値を与える余地を残すため optional とする。未指定なら最終 iteration の recycle stream 圧力を使う。
+fresh EB と fresh water の条件は確定値として別定数に置く。recycle EB と recycle water の温度、圧力、組成は、最終 iteration の `eb_recycle`、`water_recycle` stream から読む。recycle 圧力は入口 mixer 側へ合わせず、recycle stream の圧力をそのまま使う。圧力を合わせると、ポンプや圧力調整に関するコスト計算の前提が崩れるためである。
 
 `reactor_inlet_pressure_kpa` と `reactor_inlet_temperature_c` は、反応器 case の入口条件を正とする。radial では `RadialReactorRunConditions.inlet_pressure_pa` と `stage_inlet_temperatures_k[0]` から変換する。PFR でも対応する入口圧力と第1段入口温度から変換する。
 
@@ -149,14 +171,14 @@ recycle EB と recycle water の温度は、最終 iteration の `eb_recycle`、
 ```text
 component molar flow:
   EB = steady_fresh_feed.eb
-  H2O = 0
+  Benzene = steady_fresh_feed.eb * 0.005 / 0.995
   others = 0
 
 temperature:
-  InletConditionSettings.fresh_eb_temperature_c
+  30 C
 
 pressure:
-  InletConditionSettings.fresh_eb_pressure_kpa
+  101.3 kPa
 ```
 
 HYSYS 成分名は case 側の成分一覧から取得し、既存の `normalized_component_name()` と同じ正規化で `Ethylbenzene`、`EBenzene`、`EB` などを EB に対応付ける。
@@ -171,10 +193,10 @@ component molar flow:
   others = 0
 
 temperature:
-  InletConditionSettings.fresh_water_temperature_c
+  30 C
 
 pressure:
-  InletConditionSettings.fresh_water_pressure_kpa
+  300 kPa
 ```
 
 Python 側では反応器 feed の水を `steam` と呼ぶが、HYSYS stream 上では `H2O` または `Water` として対応付ける。
@@ -191,8 +213,7 @@ temperature:
   final_iteration.plant_record.streams["eb_recycle"].temperature_c
 
 pressure:
-  InletConditionSettings.recycle_eb_pressure_kpa
-  未指定なら final_iteration.plant_record.streams["eb_recycle"].pressure_kpa
+  final_iteration.plant_record.streams["eb_recycle"].pressure_kpa
 ```
 
 recycle stream は EB 以外の微量成分を含みうるため、EB だけに丸めない。HYSYS の成分名と `PlantStreamRecord` の成分名が一致しない場合は、正規化した成分名で対応付ける。
@@ -209,8 +230,7 @@ temperature:
   final_iteration.plant_record.streams["water_recycle"].temperature_c
 
 pressure:
-  InletConditionSettings.recycle_water_pressure_kpa
-  未指定なら final_iteration.plant_record.streams["water_recycle"].pressure_kpa
+  final_iteration.plant_record.streams["water_recycle"].pressure_kpa
 ```
 
 ### eb2 と water2
@@ -259,25 +279,25 @@ docs/
 write_material_stream_spec(flowsheet, spec)
 write_operation_spec(flowsheet, spec)
 apply_hysys_control_plan(simulation_case, plan)
+readback_hysys_control_plan(simulation_case, plan)
+validate_hysys_control_readback(plan, readback)
 set_component_molar_flows_from_mapping(stream, component_names, values)
-set_component_molar_fractions_from_mapping(stream, component_names, values)
 ```
 
 `plant/hysys_controls.py` は、次の関数を持つ。
 
 ```text
-build_post_convergence_control_plan(
+build_inlet_control_plan(
   convergence_result,
   base_reactor_case,
   inlet_settings,
-  separator_settings,
 ) -> HysysControlPlan
 ```
 
 `session_runner.py` は、開いている session に対して次の method を追加する。
 
 ```text
-OpenHysysPlantRunner.apply_post_convergence_controls(plan: HysysControlPlan) -> None
+OpenHysysPlantRunner.apply_post_convergence_controls(plan: HysysControlPlan)
 ```
 
 この method は `HysysSeparationSession` の `simulation_case` property を使い、COM オブジェクトを runner の外へ出さずに `apply_hysys_control_plan()` を呼ぶ。
@@ -299,31 +319,35 @@ class InletStreamNames(BaseModel):
     reactor_inlet: str = "reactor_inlet"
 ```
 
-蒸留塔還流比とデカンター温度は、HYSYS operation 名と変数名が case 依存であるため、`separator/hysys_control_reference.py` にまとめる。実装時には、既存 case で COM から書き込める属性名を確認してから固定する。
+蒸留塔の HYSYS operation 名は、既存の `separator/hysys_equipment_reference.py` の `DISTILLATION_COLUMNS` を使う。
 
 ```python
-class DistillationControlReference(BaseModel):
-    """蒸留塔の操作変数参照。"""
+class DistillationRefluxRatioWriteSpec(BaseModel):
+    """蒸留塔の還流比操作条件。"""
 
     column_id: str
     operation_name: str
-    reflux_ratio_variable: str
+    reflux_ratio: float
+```
 
+`operation_name` は `sm_column -> T-1`、`eb_column -> T-2`、`bztl_column -> T-3` とする。COM 上で還流比を書き込む具体的な属性名は、還流比実装時に低レベル writer 側で確認する。
 
-class DecanterControlReference(BaseModel):
-    """デカンターの操作変数参照。"""
+デカンター1基目温度は、入口条件の後に拡張する予定である。現時点では class 設計だけ残し、実際の書き込みと読み取りは実装しない。
+
+```python
+class DecanterTemperatureWriteSpec(BaseModel):
+    """デカンターの温度操作条件。"""
 
     decanter_id: str
     operation_name: str
-    temperature_variable: str
-    temperature_unit: str = "C"
+    temperature_c: float
 ```
 
 HYSYS operation の属性名が単純な `SetValue` で書けない場合は、operation 専用 writer を `separator/hysys_io.py` に閉じ込める。plant 側には COM の詳細を出さない。
 
 ## エラー処理
 
-必須 stream が取得できない場合、または必須値が `None` の場合は例外にする。入口条件が不完全なままコスト評価すると、誤った utility cost と装置費をもっともらしく出すためである。
+必須 stream が取得できない場合、または必須値が欠落している場合は例外にする。入口条件が不完全なままコスト評価すると、誤った utility cost と装置費をもっともらしく出すためである。
 
 対象は次である。
 
@@ -339,7 +363,9 @@ HYSYS operation の属性名が単純な `SetValue` で書けない場合は、o
 - 反応器入口温度
 - 反応器入口圧力
 
-任意の分離操作条件は、未指定なら書き込まない。指定された operation が見つからない場合は例外にする。最適化 trial では、その trial を失敗として扱う方がよい。
+第二段階では、分離操作条件は `HysysControlPlan` に入れない。入口条件の書き込み確認後、還流比とデカンター温度を実装する段階で、指定された operation が見つからない場合は例外にする。
+
+書き込み後の readback で、plan と HYSYS 側の値が一致しない場合も例外にする。判定対象は、各 spec で書き込んだ項目だけとする。例えば `eb2` と `water2` は圧力だけ、`reactor_inlet` は温度だけを確認する。
 
 ## ログ
 
@@ -363,7 +389,7 @@ operations
   decanter_1 temperature=... C
 ```
 
-ログは、実際に書き込んだ plan を表示する。HYSYS が計算後に返した結果値との比較は、必要になった段階で `read_material_stream_record()` を使って追加する。
+ログは、実際に書き込んだ plan と readback 結果を表示する。HYSYS が計算後に返した結果値は、既存の `read_material_stream_record()` を使って読み取る。
 
 ## 採用しなかった案
 
@@ -403,8 +429,5 @@ trial parameters
 
 ## 未確定要素
 
-- fresh EB、fresh water の温度と圧力の既定値。
-- recycle EB、recycle water の圧力を最終 recycle stream 圧力のまま使うか、入口 mixer 側の固定圧力に合わせるか。
-- 蒸留塔還流比の対象塔と HYSYS operation 名。
-- デカンター1基目の温度を書き込む HYSYS operation 名と属性名。
-- 書き込み後の HYSYS 計算結果を、plan のログだけで足りるとするか、実際の stream readback まで必須にするか。
+- デカンター1基目の温度を書き込む HYSYS operation 名。
+- 蒸留塔還流比とデカンター温度を書き込む低レベル COM writer の詳細。
