@@ -153,7 +153,7 @@ EB 入口流量は `ReactorCandidate` に含めない。
 
 radial の高さと axial PFR の直径、長さ、触媒体積は入力ではなく計算結果である。
 
-全体最適化 v1 の radial では、Pareto v2 と別方針を採用する。Lee & Froment および Leite の `r_i=1.5 m, H=7 m` のラジアル反応器を処理規模に応じて縮小し、内半径 `1.0 m`、高さ `6.0 m` を全段共通で固定する。入口空塔速度は探索変数でも固定入力でもなく、固定寸法と各段入口体積流量から決まる結果値として扱う。
+全体最適化 v2 の radial では、Pareto v2 と別方針を採用する。Lee & Froment および Leite の `r_i=1.5 m, H=7 m` のラジアル反応器を処理規模に応じて縮小し、内半径 `1.0 m`、高さ `6.0 m` を全段共通で固定する。入口空塔速度は探索変数でも固定入力でもなく、固定寸法と各段入口体積流量から決まる結果値として扱う。runner は既存 `whole_plant_optuna_v1.py` を変更せず、`src/process_sim/optimization/runner/whole_plant_optuna_v2.py` として新規作成する。
 
 ## ラジアル反応器の簡易 Optuna tuning
 
@@ -170,7 +170,7 @@ radial 反応器では、PFR 用の段長ではなく、触媒層厚みを探索
 | 各段触媒層厚み | 0.3 から 1.2 | m | 簡易 tuning の既存範囲。 |
 | 入口空塔速度 | 2.0 | m/s | 簡易 tuning の既存設定。 |
 
-全体最適化 v1 の radial では、触媒層厚み範囲を 2段で `0.6` から `0.9 m`、3段で `0.5` から `0.8 m` とする。これは既往研究の触媒層厚み `0.614` から `0.708 m` を含めつつ、2段では 1 段あたりの反応負荷が大きいことを考慮した範囲である。
+全体最適化 v2 の radial では、触媒層厚み範囲を 2段で `0.6` から `0.9 m`、3段で `0.5` から `0.8 m` とする。これは既往研究の触媒層厚み `0.614` から `0.708 m` を含めつつ、2段では 1 段あたりの反応負荷が大きいことを考慮した範囲である。
 
 2段と3段は探索次元が異なるため、同一 study には混ぜない。`N=2` の第2段入口温度と、`N=3` の第2段入口温度は後段の有無が違うため同じ意味にならない。したがって、2段用と3段用の best trial を最後に同じ目的関数値で比較する。
 
@@ -202,13 +202,15 @@ uv run python -m process_sim.optimization.runner.radial_simple_optuna
 | 圧力正値 | 必須 | 必須 |
 | 元素収支 | 必須 | 必須 |
 | Ergun 適用範囲 | 必須 | 必須 |
-| 触媒層出口空塔速度 | 全体最適化 v1 では確認指標 | - |
+| 触媒層出口空塔速度 | 全体最適化 v2 では確認指標 | - |
 | profile 上の空塔速度 | - | 1.0 から 3.0 m/s |
 | 各段長 | - | 10 m 以下 |
 
 Peclet 数制約は現時点では入れない。
 
-全体最適化 v1 の radial では、空塔速度を trial 採否の制約に使わない。空塔速度はログと結果確認に残し、圧力損失、出口圧力、Ergun 適用範囲、HYSYS 収束性を主な実現性確認として使う。他の runner はこの変更対象に含めない。
+全体最適化 v2 の radial では、空塔速度を trial 採否の制約に使わない。空塔速度はログと結果確認に残し、圧力損失、出口圧力、Ergun 適用範囲、HYSYS 収束性を主な実現性確認として使う。他の runner はこの変更対象に含めない。
+
+全体最適化 v2 の修正対象は、`src/process_sim/reactor/`、`src/process_sim/optimization/reactor/`、`src/process_sim/optimization/runner/whole_plant_optuna_v2.py`、`scripts/whole_plant_optuna_v2/`、`docs/` とする。既存の `whole_plant_optuna_v1.py`、`reactor_pareto_v2_optuna.py`、`radial_simple_optuna.py`、`radial_fast_plant_optuna.py` は直接変更しない。
 
 元素収支は、入口と出口の C 原子流量、H 原子流量について、それぞれ次の相対誤差が `1e-8` 未満であることを要求する。
 
