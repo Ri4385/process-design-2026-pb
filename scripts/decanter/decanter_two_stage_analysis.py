@@ -62,6 +62,7 @@ WATER_CP_KJ_KG_K = 4.184
 REHEATER_U_KJ_M2_K_H = 3600.0
 STEAM_TEMPERATURE_C = 130.0
 DEPRECIATION_YEARS = 7.0
+CAPITAL_COST_INSTALLATION_FACTOR = 2.5
 TOWER1_PRESSURE_KPA = 10.0
 YEN_PER_OKU_YEN = 1.0e8
 VERBOSE = True
@@ -346,13 +347,13 @@ def reheater_area_m2(duty_kw: float, water_inlet_c: float) -> float:
 def heat_exchanger_annual_cost_yen_per_year(areas_m2: list[float]) -> float:
     """熱交換器面積群から年換算費を計算する。"""
     capital_cost_yen = sum(cooler_capital_cost_yen(area_m2) for area_m2 in areas_m2 if area_m2 > 0.0)
-    return capital_cost_yen / DEPRECIATION_YEARS
+    return capital_cost_yen * CAPITAL_COST_INSTALLATION_FACTOR / DEPRECIATION_YEARS
 
 
 def decanter_annual_cost_yen_per_year(volumes_m3: list[float]) -> float:
     """デカンター体積群から年換算費を計算する。"""
     capital_cost_yen = sum(decanter_capital_cost_yen(volume_m3) for volume_m3 in volumes_m3 if volume_m3 > 0.0)
-    return capital_cost_yen / DEPRECIATION_YEARS
+    return capital_cost_yen * CAPITAL_COST_INSTALLATION_FACTOR / DEPRECIATION_YEARS
 
 
 def build_breakdown(

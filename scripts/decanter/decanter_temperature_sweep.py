@@ -66,6 +66,7 @@ REHEATER_U_KJ_M2_K_H = 3600.0
 STEAM_TEMPERATURE_C = 130.0
 
 DEPRECIATION_YEARS = 7.0
+CAPITAL_COST_INSTALLATION_FACTOR = 2.5
 
 STREAM_REACTOR_OUTLET = "reactor_outlet"
 STREAM_SEPARATOR_FEED = "separator_feed"
@@ -332,7 +333,7 @@ def reheater_area_m2(duty_kw: float, water_inlet_c: float) -> float:
 def annualized_heat_exchanger_cost_yen_per_year(areas_m2: list[float]) -> float:
     """熱交換器面積群から年換算費を計算する。"""
     capital_cost_yen = sum(cooler_capital_cost_yen(area_m2) for area_m2 in areas_m2 if area_m2 > 0.0)
-    return capital_cost_yen / DEPRECIATION_YEARS
+    return capital_cost_yen * CAPITAL_COST_INSTALLATION_FACTOR / DEPRECIATION_YEARS
 
 
 def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: float) -> DecanterSweepResult:
@@ -446,7 +447,9 @@ def evaluate_temperature(flowsheet: Any, simulation_case: Any, temperature_c: fl
         heat_exchanger_annual_cost_yen_per_year = annualized_heat_exchanger_cost_yen_per_year(
             [cooling_water_area_m2, refrigerant_area_m2, reheat_area_m2]
         )
-        decanter_annual_cost_yen_per_year = decanter_capital_cost_yen(decanter_volume_m3) / DEPRECIATION_YEARS
+        decanter_annual_cost_yen_per_year = (
+            decanter_capital_cost_yen(decanter_volume_m3) * CAPITAL_COST_INSTALLATION_FACTOR / DEPRECIATION_YEARS
+        )
         total_cost_yen_per_year = (
             offgas_loss_yen_per_year
             + cooling_water_yen_per_year
