@@ -12,8 +12,8 @@
 
 - AI は HYSYS 実行用スクリプトの作成と読解は行ってよいが、実行結果はユーザーが返した出力だけを根拠に扱う。
 - **HYSYSの起動を含むコードは実行してはならない。ユーザーのみが実行可能である。**
-- `uv run main.py`やruffチェックを行う際はユーザに実行を訪ねる形でしか実行できない。
-- ファイル削除、データ削除は基本的に行ってはならない。もし必要な場合は、ユーザーにchatで通知し、指示があった場合のみ削除できることとする。
+- `uv run main.py`などファイル実行を行う際はユーザに実行を訪ねる形でしか実行できない。
+- ファイル削除、データ削除は行ってはならない。
 
 ## Tech Stack
 
@@ -23,6 +23,14 @@
 - Test: `pytest`
 - Integration: `pywin32` による HYSYS COM 連携
 - HYSYS Version: v14
+
+commands examples
+```powershell
+uv --cache-dir .uv-cache run ruff check
+uv --cache-dir .uv-cache run ruff format main.py
+uv --cache-dir .uv-cache run pyright 
+uv --cache-dir .uv-cache run pytest test.py
+```
 
 ## Code Rules
 
