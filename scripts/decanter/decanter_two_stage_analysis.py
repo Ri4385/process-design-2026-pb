@@ -87,6 +87,17 @@ DECANTER_DIAMETER_CELL_COLUMN = 1
 DECANTER_HEIGHT_CELL_ROW = 0
 DECANTER_HEIGHT_CELL_COLUMN = 2
 
+DETAILED_COST_SERIES_STYLE = {
+    "total": {"label": "評価関数", "color": "black", "linewidth": 2.0},
+    "cooling_water": {"label": "冷却水コスト", "color": "tab:blue", "linewidth": 1.5},
+    "refrigerant": {"label": "プロピレン冷媒コスト", "color": "tab:green", "linewidth": 1.5},
+    "reheat": {"label": "再加熱コスト", "color": "tab:red", "linewidth": 1.5},
+    "offgas_loss": {"label": "製品と原料の損失", "color": "tab:purple", "linewidth": 1.5},
+    "heat_exchanger": {"label": "熱交換器コスト", "color": "tab:brown", "linewidth": 1.5},
+    "decanter": {"label": "三相分離器コスト", "color": "tab:pink", "linewidth": 1.5},
+}
+BREAKDOWN_KEYS = ("offgas_loss", "cooling_water", "refrigerant", "reheat", "heat_exchanger", "decanter")
+
 VALUABLE_COMPONENT_IDS = ("eb", "styrene", "benzene", "toluene")
 HYSYS_COMPONENT_TO_COMPONENT_ID = {
     "methane": "methane",
@@ -601,25 +612,22 @@ def write_two_stage_cost_figure(two_stage_results: list[DecanterCaseResult]) -> 
     if not valid_results:
         return
     t1_values = [result.t1_c or math.nan for result in valid_results]
-    labels = ["オフガス損失", "冷却水", "プロピレン", "再加熱", "熱交換器", "デカンター"]
-    plt.figure(figsize=(8, 5))
+    plt.figure()
     configure_axes()
-    
-    for index, label in enumerate(labels):
-        values = [breakdown_values_oku(result)[index] for result in valid_results]
-        plt.plot(t1_values, values, marker="o", label=label)
+
     plt.plot(
         t1_values,
         [cost_to_oku_yen(result.breakdown.total_yen_per_year if result.breakdown else None) for result in valid_results],
-        color="black",
         marker="o",
-        linewidth=2.0,
-        label="合計",
+        **DETAILED_COST_SERIES_STYLE["total"],
     )
+    for index, key in enumerate(BREAKDOWN_KEYS):
+        values = [breakdown_values_oku(result)[index] for result in valid_results]
+        plt.plot(t1_values, values, marker="o", **DETAILED_COST_SERIES_STYLE[key])
     plt.xticks(list(T1_DECANTER_LIST_C))
     plt.xlabel("1基目デカンター温度 T1 [℃]")
     plt.ylabel("コスト [億円/year]")
-    plt.legend(loc="upper right", bbox_to_anchor=(1.0, 0.9))
+    plt.legend(loc="upper right", bbox_to_anchor=(1.0, 0.85), fontsize=9)
     plt.tight_layout()
     plt.savefig(MEDIA_DIR / "two_stage_decanter_cost_vs_t1.png", dpi=200)
     plt.close()
@@ -633,19 +641,19 @@ def write_best_breakdown_figure(one_stage_result: DecanterCaseResult, two_stage_
     best_two_stage = min(valid_two_stage, key=lambda result: result.breakdown.total_yen_per_year if result.breakdown else math.inf)
     plot_results = [one_stage_result, best_two_stage]
     x_positions = [0, 1]
-    labels = ["オフガス損失", "冷却水", "プロピレン", "再加熱", "熱交換器", "デカンター"]
     bottoms = [0.0, 0.0]
-    plt.figure(figsize=(7, 5))
+    plt.figure(figsize=(7.5, 5.5))
     axes = plt.gca()
     axes.grid(False)
     axes.tick_params(direction="in", top=False, right=True, bottom=False, left=True)
-    for index, label in enumerate(labels):
+    for index, key in enumerate(BREAKDOWN_KEYS):
         values = [breakdown_values_oku(result)[index] for result in plot_results]
-        plt.bar(x_positions, values, bottom=bottoms, label=label, alpha=0.8)
+        style = DETAILED_COST_SERIES_STYLE[key]
+        plt.bar(x_positions, values, bottom=bottoms, label=style["label"], color=style["color"], alpha=0.8)
         bottoms = [bottom + value for bottom, value in zip(bottoms, values, strict=True)]
     plt.xticks(x_positions, [result.label for result in plot_results])
     plt.ylabel("コスト [億円/year]")
-    plt.legend()
+    plt.legend(fontsize=9)
     plt.tight_layout()
     plt.savefig(MEDIA_DIR / "decanter_best_case_cost_breakdown.png", dpi=200)
     plt.close()

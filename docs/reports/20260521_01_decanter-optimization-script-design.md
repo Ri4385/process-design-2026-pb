@@ -464,15 +464,13 @@ V-1:
 
 図は `scripts/decanter/media/` に保存する。
 
-初期実装で必要な図は次である。
+現在保存する図は次である。
 
 ```text
 cost_vs_temperature.png
-offgas_loss_vs_temperature.png
-recovery_vs_temperature.png
-tower1_vapor_fraction_vs_temperature.png
-cooling_duty_vs_temperature.png
 ```
+
+`cost_vs_temperature.png` は、評価関数と主要内訳を同じ折れ線図に重ねる。凡例は、評価関数、冷却水コスト、プロピレン冷媒コスト、再加熱コスト、製品と原料の損失、熱交換器コスト、三相分離器コストとする。
 
 CSV は作らない。必要な数値は標準出力に表形式で表示する。詳細な数値が必要になった場合は、後から Markdown の作業メモ出力を検討するが、初期設計には入れない。
 

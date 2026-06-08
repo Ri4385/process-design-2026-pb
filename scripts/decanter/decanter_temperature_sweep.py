@@ -43,8 +43,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CASE_PATH = SCRIPT_DIR / "hysys" / "decanter1_0524v1.hsc"
 MEDIA_DIR = SCRIPT_DIR / "media"
 
-T_DEC_LIST_C = tuple(float(value) for value in range(15, 66, 5))
-# T_DEC_LIST_C = tuple(float(value) for value in range(15, 50, 5))
+# T_DEC_LIST_C = tuple(float(value) for value in range(15, 66, 5))
+T_DEC_LIST_C = tuple(float(value) for value in range(15, 50, 5))
 DETAIL_T_DEC_LIST_C = (15.0, 75.0)
 REACTOR_OUTLET_PRESSURE_KPA: float | None = None
 TOWER1_PRESSURE_KPA = 10.0
@@ -84,6 +84,16 @@ DECANTER_DIAMETER_CELL_COLUMN = 1
 DECANTER_HEIGHT_CELL_ROW = 0
 DECANTER_HEIGHT_CELL_COLUMN = 2
 YEN_PER_OKU_YEN = 1.0e8
+
+DETAILED_COST_SERIES_STYLE = {
+    "total": {"label": "評価関数", "color": "black", "linewidth": 2.0},
+    "cooling_water": {"label": "冷却水コスト", "color": "tab:blue", "linewidth": 1.5},
+    "refrigerant": {"label": "プロピレン冷媒コスト", "color": "tab:green", "linewidth": 1.5},
+    "reheat": {"label": "再加熱コスト", "color": "tab:red", "linewidth": 1.5},
+    "offgas_loss": {"label": "製品と原料の損失", "color": "tab:purple", "linewidth": 1.5},
+    "heat_exchanger": {"label": "熱交換器コスト", "color": "tab:brown", "linewidth": 1.5},
+    "decanter": {"label": "三相分離器コスト", "color": "tab:pink", "linewidth": 1.5},
+}
 
 VALUABLE_COMPONENT_IDS = ("eb", "styrene", "benzene", "toluene")
 HYSYS_COMPONENT_TO_COMPONENT_ID = {
@@ -540,104 +550,54 @@ def write_figures(results: list[DecanterSweepResult]) -> None:
 
     plt.figure()
     configure_axes()
-    plt.plot(temperatures, [yen_per_year_to_oku_yen_per_year(result.total_cost_yen_per_year) for result in results], marker="o", label="合計")
+    plt.plot(
+        temperatures,
+        [yen_per_year_to_oku_yen_per_year(result.total_cost_yen_per_year) for result in results],
+        marker="o",
+        **DETAILED_COST_SERIES_STYLE["total"],
+    )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.cooling_water_cost_yen_per_year) for result in results],
         marker="o",
-        label="冷却水",
+        **DETAILED_COST_SERIES_STYLE["cooling_water"],
     )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.refrigerant_cost_yen_per_year) for result in results],
         marker="o",
-        label="プロピレン",
+        **DETAILED_COST_SERIES_STYLE["refrigerant"],
     )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.reheat_steam_cost_yen_per_year) for result in results],
         marker="o",
-        label="再加熱",
+        **DETAILED_COST_SERIES_STYLE["reheat"],
     )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.offgas_loss_yen_per_year) for result in results],
         marker="o",
-        label="オフガス損失",
+        **DETAILED_COST_SERIES_STYLE["offgas_loss"],
     )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.heat_exchanger_annual_cost_yen_per_year) for result in results],
         marker="o",
-        label="熱交換器年換算",
+        **DETAILED_COST_SERIES_STYLE["heat_exchanger"],
     )
     plt.plot(
         temperatures,
         [yen_per_year_to_oku_yen_per_year(result.decanter_annual_cost_yen_per_year) for result in results],
         marker="o",
-        label="デカンター年換算",
+        **DETAILED_COST_SERIES_STYLE["decanter"],
     )
     configure_temperature_ticks(temperatures)
     plt.xlabel("デカンター入口温度 [℃]")
     plt.ylabel("コスト [億円/year]")
-    plt.legend()
+    plt.legend(fontsize=9)
     plt.tight_layout()
     plt.savefig(MEDIA_DIR / "cost_vs_temperature.png", dpi=200)
-    plt.close()
-
-    plt.figure()
-    configure_axes()
-    plt.plot(temperatures, [cost_value(result.cooler_duty_kw) / 1000.0 for result in results], marker="o")
-    configure_temperature_ticks(temperatures)
-    plt.xlabel("デカンター入口温度 [℃]")
-    plt.ylabel("C-1 duty [MW]")
-    plt.tight_layout()
-    plt.savefig(MEDIA_DIR / "cooling_duty_vs_temperature.png", dpi=200)
-    plt.close()
-
-    plt.figure()
-    configure_axes()
-    plt.plot(temperatures, [cost_value(result.tower1_feed_vapor_fraction) for result in results], marker="o")
-    plt.axhline(MAX_TOWER1_FEED_VAPOR_FRAC, color="red", linestyle="--")
-    configure_temperature_ticks(temperatures)
-    plt.xlabel("デカンター入口温度 [℃]")
-    plt.ylabel("tower1_feed ベーパー率 [-]")
-    plt.tight_layout()
-    plt.savefig(MEDIA_DIR / "tower1_vapor_fraction_vs_temperature.png", dpi=200)
-    plt.close()
-
-    plt.figure()
-    configure_axes()
-    for component_id in VALUABLE_COMPONENT_IDS:
-        plt.plot(
-            temperatures,
-            [result.offgas_component_flow_kmol_h.get(component_id, math.nan) for result in results],
-            marker="o",
-            label=component_id,
-        )
-    configure_temperature_ticks(temperatures)
-    plt.xlabel("デカンター入口温度 [℃]")
-    plt.ylabel("オフガス成分流量 [kmol/h]")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(MEDIA_DIR / "offgas_components_vs_temperature.png", dpi=200)
-    plt.close()
-
-    plt.figure()
-    configure_axes()
-    for component_id in VALUABLE_COMPONENT_IDS:
-        plt.plot(
-            temperatures,
-            [result.recovery.get(component_id, math.nan) for result in results],
-            marker="o",
-            label=component_id,
-        )
-    configure_temperature_ticks(temperatures)
-    plt.xlabel("デカンター入口温度 [℃]")
-    plt.ylabel("油相回収率 [-]")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(MEDIA_DIR / "recovery_vs_temperature.png", dpi=200)
     plt.close()
 
 
