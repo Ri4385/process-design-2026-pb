@@ -22,6 +22,18 @@ INITIAL_RADIAL_BED_THICKNESS_RANGE_M = ParameterRange(
     upper=1.2,
 )
 
+# 全体最適化 v2 の 2 段ラジアル反応器各段触媒層厚み範囲。
+WHOLE_PLANT_V2_TWO_STAGE_RADIAL_BED_THICKNESS_RANGE_M = ParameterRange(
+    lower=0.6,
+    upper=0.9,
+)
+
+# 全体最適化 v2 の 3 段ラジアル反応器各段触媒層厚み範囲。
+WHOLE_PLANT_V2_THREE_STAGE_RADIAL_BED_THICKNESS_RANGE_M = ParameterRange(
+    lower=0.5,
+    upper=0.8,
+)
+
 # ラジアル反応器列入口圧力範囲。
 # 段間再加熱器圧損を見込み、50 から 200 kPa abs とする。
 INITIAL_RADIAL_INLET_PRESSURE_RANGE_KPA_ABS = ParameterRange(
@@ -44,15 +56,21 @@ PARETO_V2_AXIAL_LD_RATIO_RANGE = ParameterRange(
 # ラジアル反応器入口空塔速度。
 RADIAL_INLET_SUPERFICIAL_VELOCITY_M_PER_S = 2.0
 
+# 全体最適化 v2 のラジアル反応器内半径。
+WHOLE_PLANT_V2_RADIAL_CENTER_CHANNEL_RADIUS_M = 1.0
+
+# 全体最適化 v2 のラジアル反応器高さ。
+WHOLE_PLANT_V2_RADIAL_BED_HEIGHT_M = 6.0
+
 
 @dataclass(frozen=True)
 class RadialReactorParameterConfig:
     """ラジアル反応器最適化変数の探索空間。"""
 
     stage_inlet_temperatures_c: tuple[ParameterRange, ...]  # 各段の反応器入口温度範囲
-    inlet_pressure_kpa_abs: ParameterRange                  # 反応器列入口圧力範囲
-    steam_to_eb_ratio: ParameterRange                       # Steam/EB モル比範囲
-    bed_thicknesses_m: tuple[ParameterRange, ...]           # 各段の触媒層厚み範囲
+    inlet_pressure_kpa_abs: ParameterRange  # 反応器列入口圧力範囲
+    steam_to_eb_ratio: ParameterRange  # Steam/EB モル比範囲
+    bed_thicknesses_m: tuple[ParameterRange, ...]  # 各段の触媒層厚み範囲
 
     def __post_init__(self) -> None:
         """探索空間の構造整合性を検証する。"""
@@ -76,9 +94,9 @@ class RadialReactorCandidate:
     """探索空間から生成された 1 ケース分のラジアル反応器条件。"""
 
     stage_inlet_temperatures_c: tuple[float, ...]  # 各段の反応器入口温度
-    inlet_pressure_kpa_abs: float                  # 反応器列入口圧力
-    steam_to_eb_ratio: float                       # Steam/EB モル比
-    bed_thicknesses_m: tuple[float, ...]           # 各段の触媒層厚み
+    inlet_pressure_kpa_abs: float  # 反応器列入口圧力
+    steam_to_eb_ratio: float  # Steam/EB モル比
+    bed_thicknesses_m: tuple[float, ...]  # 各段の触媒層厚み
 
     @property
     def stage_count(self) -> int:
@@ -101,7 +119,9 @@ class AxialParetoParameterConfig:
         if stage_count not in ALLOWED_REACTOR_STAGE_COUNTS:
             raise ValueError("stage_count must be 2 or 3")
         if len(self.stage_ld_ratios) != stage_count:
-            raise ValueError("stage_ld_ratios must have the same length as stage_inlet_temperatures_c")
+            raise ValueError(
+                "stage_ld_ratios must have the same length as stage_inlet_temperatures_c"
+            )
 
     @property
     def stage_count(self) -> int:
@@ -152,6 +172,38 @@ THREE_STAGE_RADIAL_REACTOR_PARAMETER_CONFIG = RadialReactorParameterConfig(
         INITIAL_RADIAL_BED_THICKNESS_RANGE_M,
         INITIAL_RADIAL_BED_THICKNESS_RANGE_M,
     ),
+)
+
+# 全体最適化 v2 の 2 段ラジアル反応器用探索空間。
+TWO_STAGE_WHOLE_PLANT_V2_RADIAL_REACTOR_PARAMETER_CONFIG = RadialReactorParameterConfig(
+    stage_inlet_temperatures_c=(
+        INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C,
+        INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C,
+    ),
+    inlet_pressure_kpa_abs=ParameterRange(lower=80.0, upper=200.0),
+    steam_to_eb_ratio=INITIAL_RADIAL_STEAM_TO_EB_RATIO_RANGE,
+    bed_thicknesses_m=(
+        WHOLE_PLANT_V2_TWO_STAGE_RADIAL_BED_THICKNESS_RANGE_M,
+        WHOLE_PLANT_V2_TWO_STAGE_RADIAL_BED_THICKNESS_RANGE_M,
+    ),
+)
+
+# 全体最適化 v2 の 3 段ラジアル反応器用探索空間。
+THREE_STAGE_WHOLE_PLANT_V2_RADIAL_REACTOR_PARAMETER_CONFIG = (
+    RadialReactorParameterConfig(
+        stage_inlet_temperatures_c=(
+            INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C,
+            INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C,
+            INITIAL_STAGE_INLET_TEMPERATURE_RANGE_C,
+        ),
+        inlet_pressure_kpa_abs=ParameterRange(lower=100.0, upper=200.0),
+        steam_to_eb_ratio=INITIAL_RADIAL_STEAM_TO_EB_RATIO_RANGE,
+        bed_thicknesses_m=(
+            WHOLE_PLANT_V2_THREE_STAGE_RADIAL_BED_THICKNESS_RANGE_M,
+            WHOLE_PLANT_V2_THREE_STAGE_RADIAL_BED_THICKNESS_RANGE_M,
+            WHOLE_PLANT_V2_THREE_STAGE_RADIAL_BED_THICKNESS_RANGE_M,
+        ),
+    )
 )
 
 # 2段 axial PFR Pareto v2 用探索空間。

@@ -7,16 +7,30 @@ from process_sim.constants.reaction_networks import STYRENE_SIX_REACTION_NETWORK
 from process_sim.constants.universal import UNIVERSAL_CONSTANTS
 from process_sim.reactor.cases.styrene_radial_default import RadialReactorCase
 from process_sim.reactor.cases.styrene_default import ReactorCase
-from process_sim.reactor.core.balance import ReactorBalanceContext, pfr_adiabatic_derivatives
+from process_sim.reactor.core.balance import (
+    ReactorBalanceContext,
+    pfr_adiabatic_derivatives,
+)
 from process_sim.reactor.core import config
-from process_sim.reactor.core.models import RadialReactorRunConditions, ReactorRunConditions
+from process_sim.reactor.core.models import (
+    RadialReactorRunConditions,
+    ReactorRunConditions,
+)
 from process_sim.reactor.core.pressure_drop import ErgunParameters
 from process_sim.reactor.core.reaction import reaction_rates
 from process_sim.reactor.core.stream import COMPONENT_ORDER, ReactorFeed
-from process_sim.reactor.core.thermodynamics import reaction_enthalpy_kj_per_kmol, standard_reaction_enthalpy_kj_per_kmol
-from process_sim.reactor.types.staged_adiabatic_radial import StagedAdiabaticRadialFlowModel
+from process_sim.reactor.core.thermodynamics import (
+    reaction_enthalpy_kj_per_kmol,
+    standard_reaction_enthalpy_kj_per_kmol,
+)
+from process_sim.reactor.types.staged_adiabatic_radial import (
+    StagedAdiabaticRadialFlowModel,
+)
 from process_sim.reactor.types.staged_adiabatic_pfr import StagedAdiabaticPfrModel
-from process_sim.plant.summary import format_pfr_reactor_report, format_radial_reactor_report
+from process_sim.plant.summary import (
+    format_pfr_reactor_report,
+    format_radial_reactor_report,
+)
 
 
 def make_test_feed() -> ReactorFeed:
@@ -63,6 +77,7 @@ def make_test_radial_case() -> RadialReactorCase:
             stage_inlet_temperatures_k=(823.15, 823.15, 823.15),
             inlet_superficial_velocity_m_per_s=2.0,
             center_channel_radius_m=1.0,
+            bed_height_m=6.0,
             bed_thicknesses_m=(0.45, 0.9, 0.9),
             pellet_diameter_m=0.003,
             bed_void_fraction=0.4312,
@@ -98,10 +113,16 @@ def test_numba_reactor_core_matches_python_path(
     finally:
         config.USE_NUMBA_REACTOR_CORE = original
 
-    assert numba_result.outlet.pressure_kpa == pytest.approx(python_result.outlet.pressure_kpa)
-    assert numba_result.outlet.temperature_c == pytest.approx(python_result.outlet.temperature_c)
+    assert numba_result.outlet.pressure_kpa == pytest.approx(
+        python_result.outlet.pressure_kpa
+    )
+    assert numba_result.outlet.temperature_c == pytest.approx(
+        python_result.outlet.temperature_c
+    )
     assert numba_result.eb_conversion == pytest.approx(python_result.eb_conversion)
-    assert numba_result.styrene_selectivity == pytest.approx(python_result.styrene_selectivity)
+    assert numba_result.styrene_selectivity == pytest.approx(
+        python_result.styrene_selectivity
+    )
     assert numba_result.log.carbon_balance_error_fraction == pytest.approx(
         python_result.log.carbon_balance_error_fraction
     )
@@ -120,7 +141,9 @@ def test_physical_properties_match_documented_values() -> None:
     assert benzene.heat_capacity.b == pytest.approx(4.744e-1)
 
 
-def test_standard_reaction_enthalpies_are_calculated_from_formation_enthalpies() -> None:
+def test_standard_reaction_enthalpies_are_calculated_from_formation_enthalpies() -> (
+    None
+):
     expected_kj_per_kmol = {
         "r1": 117_700.0,
         "r2": 105_500.0,

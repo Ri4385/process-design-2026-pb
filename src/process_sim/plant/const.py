@@ -9,6 +9,8 @@ DEFAULT_HYSYS_CASE_PATH = Path(
     "data/hysys/process_design_best0604v1.hsc"
 )  # 既定の HYSYS case path
 DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS = 120.0  # HYSYS 実行 timeout 秒
+DEFAULT_WHOLE_PLANT_TRIAL_TIMEOUT_SECONDS = 60.0  # 全体最適化 trial timeout 秒
+DEFAULT_HYSYS_PREWARM_TIMEOUT_SECONDS = 180.0  # HYSYS prewarm timeout 秒
 HOURS_PER_YEAR = 8000.0  # 年間稼働時間 h/year
 
 DEFAULT_TARGET_SM_KMOL_H = 240.033  # 目標 SM product total 流量 kmol/h

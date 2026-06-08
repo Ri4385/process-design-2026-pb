@@ -28,6 +28,8 @@ dev = [
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
 include = ["src"]
 exclude = ["scripts", "tests", "**/node_modules", "**/__pycache__", "**/.*", ".venv"]
 

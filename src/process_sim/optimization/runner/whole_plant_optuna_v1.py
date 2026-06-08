@@ -274,7 +274,7 @@ class ValidatingPlantRunner:
         reactor_model: ReactorModelName,
     ) -> None:
         self.plant_runner = plant_runner
-        self.reactor_model = reactor_model
+        self.reactor_model: ReactorModelName = reactor_model
         self.last_reactor_result: ReactorResult | None = None
 
     def __call__(self, reactor_case: ReactorCaseLike) -> PlantRunRecord:

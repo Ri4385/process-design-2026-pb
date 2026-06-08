@@ -80,12 +80,24 @@ def evaluate_c11_h22_heat_recovery(equipment: ProcessEquipment) -> HeatRecoveryR
         (c11.inlet_temperature_c - available_hot_outlet_c)
         / (c11.inlet_temperature_c - c11.outlet_temperature_c)
     )
-    recovered_duty_kw = min(abs(c11.duty_kw), abs(h22.duty_kw), c11_temperature_limited_duty_kw)
+    h22_temperature_limited_duty_kw = abs(h22.duty_kw) * (
+        (c11.inlet_temperature_c - minimum_approach_c - h22.inlet_temperature_c)
+        / (h22.outlet_temperature_c - h22.inlet_temperature_c)
+    )
+    recovered_duty_kw = min(
+        abs(c11.duty_kw),
+        abs(h22.duty_kw),
+        c11_temperature_limited_duty_kw,
+        h22_temperature_limited_duty_kw,
+    )
     hot_outlet_c = c11.inlet_temperature_c - (
         (c11.inlet_temperature_c - c11.outlet_temperature_c) * recovered_duty_kw / abs(c11.duty_kw)
     )
-    cold_outlet_c = h22.outlet_temperature_c
-    lmtd_k = log_mean_temperature_difference_k(
+    cold_outlet_c = h22.inlet_temperature_c + (
+        (h22.outlet_temperature_c - h22.inlet_temperature_c) * recovered_duty_kw / abs(h22.duty_kw)
+    )
+    lmtd_k = log_lmtd_with_context(
+        label=f"{c11.id} -> {h22.id} heat recovery",
         hot_inlet_c=c11.inlet_temperature_c,
         hot_outlet_c=hot_outlet_c,
         cold_inlet_c=h22.inlet_temperature_c,
@@ -143,6 +155,7 @@ def evaluate_distillation_columns(equipment: ProcessEquipment) -> tuple[CostBrea
                 cold_inlet_c=30.0,
                 cold_outlet_c=45.0,
                 u_key="liquid_condensing_gas",
+                label=f"{column.id} condenser {column.condenser_energy_name}",
             ),
             k_factor=1.0,
         )
@@ -153,6 +166,7 @@ def evaluate_distillation_columns(equipment: ProcessEquipment) -> tuple[CostBrea
                 cold_inlet_c=column.bottom_temperature_c,
                 cold_outlet_c=column.bottom_temperature_c,
                 u_key="boiling_liquid_condensing_gas",
+                label=f"{column.id} reboiler {column.reboiler_energy_name}",
             ),
             k_factor=2.0,
         )
@@ -309,9 +323,11 @@ def area_for_constant_hot_utility(
     cold_inlet_c: float,
     cold_outlet_c: float,
     u_key: str,
+    label: str = "constant hot utility exchanger",
 ) -> float:
     """温度一定の高温 utility を使う熱交換器面積を計算する。"""
-    lmtd = log_mean_temperature_difference_k(
+    lmtd = log_lmtd_with_context(
+        label=label,
         hot_inlet_c=hot_temperature_c,
         hot_outlet_c=hot_temperature_c,
         cold_inlet_c=cold_inlet_c,
@@ -327,15 +343,40 @@ def area_for_utility_exchanger(
     cold_inlet_c: float,
     cold_outlet_c: float,
     u_key: str,
+    label: str = "utility exchanger",
 ) -> float:
     """外部 utility 熱交換器面積を計算する。"""
-    lmtd = log_mean_temperature_difference_k(
+    lmtd = log_lmtd_with_context(
+        label=label,
         hot_inlet_c=hot_inlet_c,
         hot_outlet_c=hot_outlet_c,
         cold_inlet_c=cold_inlet_c,
         cold_outlet_c=cold_outlet_c,
     )
     return heat_exchanger_area_m2(duty_kw=duty_kw, u_kj_m2_k_h=U_KJ_M2_K_H[u_key], lmtd_k=lmtd)
+
+
+def log_lmtd_with_context(
+    label: str,
+    hot_inlet_c: float,
+    hot_outlet_c: float,
+    cold_inlet_c: float,
+    cold_outlet_c: float,
+) -> float:
+    """LMTD 例外に装置と温度条件を付けて返す。"""
+    try:
+        return log_mean_temperature_difference_k(
+            hot_inlet_c=hot_inlet_c,
+            hot_outlet_c=hot_outlet_c,
+            cold_inlet_c=cold_inlet_c,
+            cold_outlet_c=cold_outlet_c,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{label}: {exc}; "
+            f"hot_in={hot_inlet_c:.3f} C, hot_out={hot_outlet_c:.3f} C, "
+            f"cold_in={cold_inlet_c:.3f} C, cold_out={cold_outlet_c:.3f} C"
+        ) from exc
 
 
 def selected_reboiler_steam_temperature_c(bottom_temperature_c: float) -> float:
@@ -379,6 +420,7 @@ def cooler_area_m2(cooler: Cooler, duty_kw: float) -> float:
             cold_inlet_c=0.0,
             cold_outlet_c=0.0,
             u_key=u_key,
+            label=f"{cooler.id} {cooler.energy_name}",
         )
 
     return area_for_utility_exchanger(
@@ -388,6 +430,7 @@ def cooler_area_m2(cooler: Cooler, duty_kw: float) -> float:
         cold_inlet_c=30.0,
         cold_outlet_c=45.0,
         u_key=u_key,
+        label=f"{cooler.id} {cooler.energy_name}",
     )
 
 
@@ -410,6 +453,7 @@ def heater_area_m2(heater: Heater, duty_kw: float) -> float:
         cold_inlet_c=heater.inlet_temperature_c,
         cold_outlet_c=heater.outlet_temperature_c,
         u_key=u_key,
+        label=f"{heater.id} {heater.energy_name}",
     )
 
 

@@ -22,6 +22,7 @@ src/process_sim/optimization/
   runner/
     radial_simple_optuna.py  # radial 反応器の簡易利益 Optuna runner
     reactor_pareto_v2_optuna.py  # radial・axial 反応器の選択率・単通反応率 Pareto front 探索 runner
+    whole_plant_optuna_v2.py  # 固定寸法 radial 方針の全体最適化 runner
 ```
 
 - `src/process_sim/optimization/models.py`
@@ -41,6 +42,10 @@ src/process_sim/optimization/
   - `from optuna.samplers import NSGAIISampler` を使う。
   - SM 選択率と EB 単通反応率を同時に最大化する。
   - `data/optuna/reactor_pareto_v2_optuna.db` を使い、中断後に探索を再開できるようにする。
+- `src/process_sim/optimization/runner/whole_plant_optuna_v2.py`
+  - radial 2段、radial 3段、axial 2段、axial 3段の study 定義を持つ。
+  - radial は内半径 `1.0 m`、高さ `6.0 m` を全段共通で固定し、空塔速度を制約ではなく確認指標として扱う。
+  - `data/optuna/whole_plant_optuna_v2.db` を使い、中断後に探索を再開できるようにする。
 
 ## コード記述ルール
 
