@@ -52,35 +52,14 @@ class RadialReactorCase:
 #     min_outlet_pressure_kpa_abs=60.0,
 #     min_bed_outlet_velocity_m_per_s=1.0,
 # )
-DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
-    inlet_pressure_pa=115_280.0,
-    # inlet_pressure_pa=105_280.0,
-    stage_inlet_temperatures_k=(273.15 + 573.86, 273.15 + 587.07, 273.15 + 624.47),
-    inlet_superficial_velocity_m_per_s=2.0,
-    center_channel_radius_m=1.0,
-    bed_height_m=6.0,
-    bed_thicknesses_m=(0.168, 0.821, 1.151),
-    pellet_diameter_m=0.003,
-    bed_void_fraction=0.4312,
-    catalyst_bulk_density_kg_m3=1422.0,
-    ergun_a=1.75,
-    ergun_b=150.0,
-    gas_viscosity_pa_s=2.6e-5,
-    interstage_reheater_pressure_drop_pa=20_000.0,
-    segments_per_stage=50000,
-    profile_points_per_stage=12,
-    min_outlet_pressure_kpa_abs=60.0,
-    min_bed_outlet_velocity_m_per_s=1.0,
-)
-
-
 # DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
-#     inlet_pressure_pa=105_070.0,
-#     stage_inlet_temperatures_k=(273.15 + 594.443, 273.15 + 649.667),
+#     inlet_pressure_pa=115_280.0,
+#     # inlet_pressure_pa=105_280.0,
+#     stage_inlet_temperatures_k=(273.15 + 573.86, 273.15 + 587.07, 273.15 + 624.47),
 #     inlet_superficial_velocity_m_per_s=2.0,
 #     center_channel_radius_m=1.0,
 #     bed_height_m=6.0,
-#     bed_thicknesses_m=(0.716521, 0.799649),
+#     bed_thicknesses_m=(0.168, 0.821, 1.151),
 #     pellet_diameter_m=0.003,
 #     bed_void_fraction=0.4312,
 #     catalyst_bulk_density_kg_m3=1422.0,
@@ -93,6 +72,27 @@ DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
 #     min_outlet_pressure_kpa_abs=60.0,
 #     min_bed_outlet_velocity_m_per_s=1.0,
 # )
+
+
+DEFAULT_STAGED_ADIABATIC_RADIAL_CONDITIONS = RadialReactorRunConditions(
+    inlet_pressure_pa=105_070.0,
+    stage_inlet_temperatures_k=(273.15 + 594.443, 273.15 + 649.667),
+    inlet_superficial_velocity_m_per_s=2.0,
+    center_channel_radius_m=1.0,
+    bed_height_m=6.0,
+    bed_thicknesses_m=(0.716521, 0.799649),
+    pellet_diameter_m=0.003,
+    bed_void_fraction=0.4312,
+    catalyst_bulk_density_kg_m3=1422.0,
+    ergun_a=1.75,
+    ergun_b=150.0,
+    gas_viscosity_pa_s=2.6e-5,
+    interstage_reheater_pressure_drop_pa=20_000.0,
+    segments_per_stage=50000,
+    profile_points_per_stage=12,
+    min_outlet_pressure_kpa_abs=60.0,
+    min_bed_outlet_velocity_m_per_s=1.0,
+)
 
 
 

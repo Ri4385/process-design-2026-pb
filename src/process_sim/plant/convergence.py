@@ -31,7 +31,11 @@ from process_sim.plant.production_target import (
     tune_fresh_feed_fast,
 )
 from process_sim.plant.runner import configure_logging
-from process_sim.plant.summary import format_final_plant_summary_section
+from process_sim.plant.summary import (
+    format_final_plant_summary_section,
+    format_pfr_reactor_report,
+    format_radial_reactor_report,
+)
 from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE
 from process_sim.reactor.core.models import ReactorResult
 from process_sim.reactor.core.stream import ReactorFeed
@@ -254,9 +258,23 @@ def format_plant_convergence_result(result: PlantConvergenceResult) -> str:
             "",
             format_plant_convergence_table(result.iterations),
             "",
+            format_final_reactor_report(final),
+            "",
             format_final_plant_summary_section(final.plant_record),
         ]
     )
+
+
+def format_final_reactor_report(iteration: PlantConvergenceIteration) -> str:
+    """最終 iteration の反応器詳細ログを返す。"""
+    if iteration.reactor_result is None:
+        return "[Final Reactor Summary]\nn/a"
+    stage_logs = iteration.reactor_result.log.stage_logs
+    if any(stage.outer_radius_m is not None for stage in stage_logs):
+        return format_radial_reactor_report(feed=iteration.reactor_feed, result=iteration.reactor_result)
+    if any(stage.equivalent_diameter_m is not None for stage in stage_logs):
+        return format_pfr_reactor_report(feed=iteration.reactor_feed, result=iteration.reactor_result)
+    return "[Final Reactor Summary]\nn/a"
 
 
 def format_plant_convergence_table(iterations: tuple[PlantConvergenceIteration, ...]) -> str:
