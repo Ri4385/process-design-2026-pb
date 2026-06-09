@@ -33,6 +33,7 @@ from process_sim.plant.production_target import (
 from process_sim.plant.runner import configure_logging
 from process_sim.plant.summary import format_final_plant_summary_section
 from process_sim.reactor.cases.styrene_radial_default import DEFAULT_STYRENE_RADIAL_REACTOR_CASE
+from process_sim.reactor.core.models import ReactorResult
 from process_sim.reactor.core.stream import ReactorFeed
 
 
@@ -63,6 +64,7 @@ class PlantConvergenceIteration:
     sm_product_kmol_h: float
     converged: bool
     plant_record: PlantRunRecord
+    reactor_result: ReactorResult | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,7 @@ def run_plant_convergence(
             )
 
         plant_record = run_once(replace(base_reactor_case, feed=reactor_feed))
+        reactor_result = read_runner_reactor_result(run_once)
         output_eb_recycle = read_valid_stream_component(
             plant_record=plant_record,
             stream_name="eb_recycle",
@@ -155,6 +158,7 @@ def run_plant_convergence(
             sm_product_kmol_h=sm_product,
             converged=converged,
             plant_record=plant_record,
+            reactor_result=reactor_result,
         )
         iterations.append(iteration)
         logger.info("\n%s", format_plant_convergence_table(tuple(iterations)))
@@ -223,6 +227,16 @@ def is_recycle_converged(
         abs(eb_recycle_error_kmol_h) <= DEFAULT_EB_RECYCLE_TOLERANCE_KMOL_H
         and abs(h2o_recycle_error_kmol_h) <= DEFAULT_H2O_RECYCLE_TOLERANCE_KMOL_H
     )
+
+
+def read_runner_reactor_result(runner: PlantRunner) -> ReactorResult | None:
+    """runner が保持している直近の ReactorResult を読む。"""
+    value = getattr(runner, "last_reactor_result", None)
+    if value is None:
+        return None
+    if not isinstance(value, ReactorResult):
+        raise TypeError("runner.last_reactor_result must be ReactorResult")
+    return value
 
 
 def format_plant_convergence_result(result: PlantConvergenceResult) -> str:

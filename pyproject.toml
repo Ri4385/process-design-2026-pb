@@ -38,6 +38,7 @@ tune-plant-feed = "process_sim.plant.production_target:tune_fresh_feed_fast_main
 run-plant-convergence = "process_sim.plant.convergence:run_plant_convergence_main"
 fast-production-target = "process_sim.plant.fast_production_target:fast_production_target_main"
 fast-plant-convergence = "process_sim.plant.fast_convergence:fast_plant_convergence_main"
+fast-plant-convergence-cost = "process_sim.plant.fast_convergence_cost:fast_plant_convergence_cost_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/process_sim"]

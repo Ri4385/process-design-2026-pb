@@ -19,6 +19,12 @@ STUDY_NAMES: tuple[tuple[str, str, str], ...] = (
     ("axial_2stage_selectivity_conversion_v2", "axial", "axial 2段"),
     ("axial_3stage_selectivity_conversion_v2", "axial", "axial 3段"),
 )
+GLOBAL_FRONT_X_MIN_PERCENT = 40.0
+GLOBAL_FRONT_Y_MIN_PERCENT = 91.0
+GLOBAL_ALL_TRIALS_Y_MIN_PERCENT = 72.0
+AXIS_LABEL_FONT_SIZE = 20
+TICK_LABEL_FONT_SIZE = 20
+LEGEND_FONT_SIZE = 20
 
 
 class ParetoPoint(BaseModel):
@@ -31,7 +37,7 @@ class ParetoPoint(BaseModel):
 
 
 def plot_pareto_front_main() -> None:
-    """指定された7種類の図を生成する。"""
+    """指定された8種類の図を生成する。"""
     storage_url = f"sqlite:///{STORAGE_PATH.as_posix()}"
     studies = tuple(
         (reactor_type, label, optuna.load_study(study_name=study_name, storage=storage_url))
@@ -42,6 +48,7 @@ def plot_pareto_front_main() -> None:
     axial_studies = select_studies(studies=studies, reactor_type="axial")
     plot_stage_fronts(studies=radial_studies, output_path=MEDIA_DIR / "radial_stage_pareto_front.png")
     plot_reactor_global_fronts(studies=studies, output_path=MEDIA_DIR / "radial_axial_global_pareto_front.png")
+    plot_reactor_global_all_trials(studies=studies, output_path=MEDIA_DIR / "radial_axial_global_all_trials.png")
     plot_stage_fronts(studies=axial_studies, output_path=MEDIA_DIR / "axial_stage_pareto_front.png")
     plot_stage_fronts(studies=studies, output_path=MEDIA_DIR / "all_stage_pareto_front.png")
     plot_all_trials(studies=radial_studies, output_path=MEDIA_DIR / "radial_all_trials.png")
@@ -112,9 +119,36 @@ def plot_reactor_global_fronts(
             [point.eb_conversion * 100.0 for point in ordered_points],
             [point.styrene_selectivity * 100.0 for point in ordered_points],
             marker="o",
-            label=f"{reactor_type} global",
+            label=f"{reactor_type}",
         )
-    configure_axes(ax=ax)
+    configure_axes(
+        ax=ax,
+        x_min_percent=GLOBAL_FRONT_X_MIN_PERCENT,
+        y_min_percent=GLOBAL_FRONT_Y_MIN_PERCENT,
+    )
+    save_figure(fig=fig, output_path=output_path)
+
+
+def plot_reactor_global_all_trials(
+    studies: tuple[tuple[str, str, optuna.Study], ...],
+    output_path: Path,
+) -> None:
+    """radial と axial の全完了 trial を反応器種別ごとにまとめて保存する。"""
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for reactor_type in ("radial", "axial"):
+        reactor_studies = select_studies(studies=studies, reactor_type=reactor_type)
+        points = tuple(
+            point
+            for _, label, study in reactor_studies
+            for point in points_from_study(study=study, reactor_type=reactor_type, label=label)
+        )
+        ax.scatter(
+            [point.eb_conversion * 100.0 for point in points],
+            [point.styrene_selectivity * 100.0 for point in points],
+            alpha=0.65,
+            label=f"{reactor_type} global all trials",
+        )
+    configure_axes(ax=ax, y_min_percent=GLOBAL_ALL_TRIALS_Y_MIN_PERCENT)
     save_figure(fig=fig, output_path=output_path)
 
 
@@ -160,18 +194,37 @@ def dominates(other: ParetoPoint, point: ParetoPoint) -> bool:
     )
 
 
-def configure_axes(ax: plt.Axes) -> None:
+def configure_axes(
+    ax: plt.Axes,
+    x_min_percent: float | None = None,
+    y_min_percent: float | None = None,
+) -> None:
     """散布図の共通表示を設定する。"""
     ax.set_xlabel("EB 単通反応率 [%]")
     ax.set_ylabel("SM 選択率 [%]")
+    if x_min_percent is not None:
+        ax.set_xlim(left=x_min_percent)
+    if y_min_percent is not None:
+        ax.set_ylim(bottom=y_min_percent)
     ax.grid(False)
-    ax.tick_params(axis="both", which="major", direction="in", top=True, right=True, length=6, width=1.0)
+    ax.xaxis.label.set_size(AXIS_LABEL_FONT_SIZE)
+    ax.yaxis.label.set_size(AXIS_LABEL_FONT_SIZE)
+    ax.tick_params(
+        axis="both",
+        which="major",
+        direction="in",
+        top=True,
+        right=True,
+        length=6,
+        width=1.0,
+        labelsize=TICK_LABEL_FONT_SIZE,
+    )
     ax.tick_params(axis="both", which="minor", direction="in", top=True, right=True, length=3, width=0.8)
     ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
     ax.xaxis.set_minor_locator(AutoMinorLocator(2))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
     ax.yaxis.set_minor_locator(AutoMinorLocator(2))
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, fontsize=LEGEND_FONT_SIZE)
 
 
 def save_figure(fig: plt.Figure, output_path: Path) -> None:
