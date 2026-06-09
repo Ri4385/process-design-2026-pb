@@ -1,0 +1,343 @@
+{
+  "case_path": "data\\hysys\\process_design_best0609v1.hsc",
+  "operation_name": "T-1",
+  "column_reflux_ratio": 6.3119999886583,
+  "specifications": [
+    {
+      "index": 0,
+      "name": "Comp Flow",
+      "type_name": "clmcompflowspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 1,
+      "name": "Comp Recovery",
+      "type_name": "clmcomprecoveryspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 2,
+      "name": "Comp Fraction",
+      "type_name": "clmcompfracspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 3,
+      "name": "Reflux Ratio",
+      "type_name": "clmrefluxspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 4,
+      "name": "Temperature",
+      "type_name": "clmtempspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 5,
+      "name": "Comp Fraction - 2",
+      "type_name": "clmcompfracspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 6,
+      "name": "Comp Recovery - 2",
+      "type_name": "clmcomprecoveryspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    }
+  ],
+  "active_specifications": [
+    {
+      "index": 0,
+      "name": "Comp Fraction",
+      "type_name": "clmcompfracspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 1,
+      "name": "Reflux Ratio",
+      "type_name": "clmrefluxspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    },
+    {
+      "index": 2,
+      "name": "Comp Recovery - 2",
+      "type_name": "clmcomprecoveryspec",
+      "matched_attrs": [
+        "AbsoluteToleranceValue",
+        "CurrentValue",
+        "ErrorValue",
+        "Goal",
+        "GoalValue",
+        "IsActive",
+        "IsUsedAsEstimate",
+        "SpecifiedDraw",
+        "SpecifiedDrawVar",
+        "SpecifiedStage",
+        "SpecifiedStageVar",
+        "WeightedToleranceValue"
+      ]
+    }
+  ],
+  "reflux_spec": {
+    "name": "Reflux Ratio",
+    "type_name": "clmrefluxspec",
+    "matched_attrs": [
+      "AbsoluteToleranceValue",
+      "CurrentValue",
+      "ErrorValue",
+      "Goal",
+      "GoalValue",
+      "IsActive",
+      "IsUsedAsEstimate",
+      "SpecifiedStage",
+      "SpecifiedStageVar",
+      "WeightedToleranceValue"
+    ],
+    "matched_values": {
+      "AbsoluteToleranceValue": {
+        "exists": true,
+        "kind": "float",
+        "value": 0.009999999776482582
+      },
+      "CurrentValue": {
+        "exists": true,
+        "kind": "float",
+        "value": 6.3119999886583
+      },
+      "ErrorValue": {
+        "exists": true,
+        "kind": "float",
+        "value": -1.796847278769438e-09
+      },
+      "Goal": {
+        "exists": true,
+        "kind": "quantity",
+        "value": 6.312
+      },
+      "GoalValue": {
+        "exists": true,
+        "kind": "float",
+        "value": 6.312
+      },
+      "IsActive": {
+        "exists": true,
+        "kind": "bool",
+        "value": true
+      },
+      "IsUsedAsEstimate": {
+        "exists": true,
+        "kind": "bool",
+        "value": true
+      },
+      "SpecifiedStage": {
+        "exists": true,
+        "kind": "ptsepstage",
+        "name": "Condenser"
+      },
+      "SpecifiedStageVar": {
+        "exists": true,
+        "kind": "CDispatch",
+        "name": "<unknown>"
+      },
+      "WeightedToleranceValue": {
+        "exists": true,
+        "kind": "float",
+        "value": 0.009999999776482582
+      }
+    },
+    "all_attrs": [
+      "AbsoluteTolerance",
+      "AbsoluteToleranceValue",
+      "AddRef",
+      "Application",
+      "CreateUserVariable",
+      "Current",
+      "CurrentValue",
+      "Error",
+      "ErrorValue",
+      "FlowBasis",
+      "GetIDsOfNames",
+      "GetTypeInfo",
+      "GetTypeInfoCount",
+      "GetUserVariable",
+      "Goal",
+      "GoalValue",
+      "IncludeVapour",
+      "Invoke",
+      "IsActive",
+      "IsUsedAsEstimate",
+      "IsValid",
+      "Moniker",
+      "OpenStorage",
+      "Parent",
+      "QueryInterface",
+      "Release",
+      "SpecifiedStage",
+      "SpecifiedStageVar",
+      "TaggedName",
+      "TypeName",
+      "UniqueID",
+      "VisibleTypeName",
+      "WeightedTolerance",
+      "WeightedToleranceValue",
+      "name"
+    ]
+  },
+  "same_value_write_probe": [
+    {
+      "attr": "AbsoluteToleranceValue",
+      "current_value": 0.009999999776482582,
+      "setattr_same_value": true
+    },
+    {
+      "attr": "CurrentValue",
+      "current_value": 6.3119999886583,
+      "setattr_same_value": false,
+      "setattr_error": "Property 'Item.CurrentValue' can not be set."
+    },
+    {
+      "attr": "ErrorValue",
+      "current_value": -1.796847278769438e-09,
+      "setattr_same_value": false,
+      "setattr_error": "Property 'Item.ErrorValue' can not be set."
+    },
+    {
+      "attr": "Goal",
+      "current_value": 6.312,
+      "setattr_same_value": true,
+      "quantity_value_same_value": true
+    },
+    {
+      "attr": "GoalValue",
+      "current_value": 6.312,
+      "setattr_same_value": true
+    },
+    {
+      "attr": "IsActive",
+      "current_value": true,
+      "setattr_same_value": true
+    },
+    {
+      "attr": "IsUsedAsEstimate",
+      "current_value": true,
+      "setattr_same_value": true
+    },
+    {
+      "attr": "WeightedToleranceValue",
+      "current_value": 0.009999999776482582,
+      "setattr_same_value": true
+    }
+  ]
+}
