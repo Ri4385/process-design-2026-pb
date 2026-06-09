@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 DEFAULT_HYSYS_CASE_PATH = Path(
-    "data/hysys/process_design_best0604v1.hsc"
+    "data/hysys/process_design_best0609v1.hsc"
 )  # 既定の HYSYS case path
 DEFAULT_HYSYS_RUN_TIMEOUT_SECONDS = 120.0  # HYSYS 実行 timeout 秒
 DEFAULT_WHOLE_PLANT_TRIAL_TIMEOUT_SECONDS = 60.0  # 全体最適化 trial timeout 秒
