@@ -363,14 +363,37 @@ annualized_equipment_yen_per_year
 以下を追加した。
 
 ```text
+src/process_sim/
+  optimization/
+    separator/
+      __init__.py
+      parameters.py
+      hysys_controls.py
+    runner/
+      whole_plant_optuna_v4.py
+  plant/
+    hysys_controls.py
+  separator/
+    hysys_io.py
 scripts/
   distillation/
     check_sm_column_reflux_write.py
     inspect_sm_column_reflux_spec.py
+  whole_plant_optuna_v4/
+    plot_results.py
+README.md
 ```
 
 `check_sm_column_reflux_write.py` は、既定 HYSYS case の `T-1.ColumnFlowsheet.Specifications` 内にある `Reflux Ratio` spec に `7.0` を書き込み、直接 readback と `read_process_equipment()` による機器読み取り結果の両方を表示する。
 
 `inspect_sm_column_reflux_spec.py` は、`Reflux Ratio` spec の属性名と同値書き込み可否を `scripts/distillation/diagnostics/sm_column_reflux_spec_probe.json` に出力する。
 
-HYSYS 実行、`uv run`、テストは本作業では行っていない。
+ユーザー実行により、`Reflux Ratio` spec の `GoalValue` へ直接代入すると、`T-1.ColumnFlowsheet.RefluxRatio` と `read_process_equipment()` の `sm_column.reflux_ratio` がどちらも `7.0` 相当へ更新されることを確認した。したがって、src 側の本実装では `GoalValue` への直接代入を採用した。
+
+`plant/hysys_controls.py` に `DistillationRefluxRatioWriteSpec` を追加し、`HysysControlPlan` で material stream 温度と蒸留塔還流比を同じ post convergence control として扱えるようにした。`separator/hysys_io.py` では、`Reflux Ratio` spec の `GoalValue` 書き込みと、`ColumnFlowsheet.RefluxRatio` による readback 検証を追加した。
+
+`optimization/separator/parameters.py` には、`decanter_1_temperature_c` と `sm_column_reflux_ratio` の探索範囲を置いた。`optimization/separator/hysys_controls.py` は、分離器操作候補から `separator_feed` 温度書き込みと SM分離塔還流比書き込みの plan を作る。
+
+`whole_plant_optuna_v4.py` は v3 をベースに、反応器候補に加えて分離器操作候補を trial で生成し、収束後に入口条件 plan と分離器操作 plan を結合して HYSYS へ適用する。trial 属性には `decanter_1_temperature_c` と `sm_column_reflux_ratio` を保存する。
+
+本作業では、HYSYS 実行は行っていない。`ruff check` と `pyright` は実行した。

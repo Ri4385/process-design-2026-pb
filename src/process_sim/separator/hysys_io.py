@@ -17,6 +17,7 @@ from process_sim.reactor.core.stream import ReactorStream
 
 if TYPE_CHECKING:
     from process_sim.plant.hysys_controls import (
+        DistillationRefluxRatioWriteSpec,
         FullMaterialStreamWriteSpec,
         HysysControlPlan,
         OperationWriteSpec,
@@ -57,6 +58,9 @@ TEMPERATURE_READBACK_ABS_TOLERANCE_C = 1.0e-3
 PRESSURE_READBACK_ABS_TOLERANCE_KPA = 1.0e-3
 FLOW_READBACK_ABS_TOLERANCE_KMOL_H = 1.0e-6
 FLOW_READBACK_REL_TOLERANCE = 1.0e-6
+REFLUX_RATIO_READBACK_ABS_TOLERANCE = 1.0e-4
+REFLUX_RATIO_SPEC_NAME = "Reflux Ratio"
+REFLUX_RATIO_GOAL_ATTR_NAME = "GoalValue"
 
 
 def normalized_component_name(name: str) -> str:
@@ -198,6 +202,15 @@ def component_object_name(component: Any) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def object_name(obj: Any) -> str:
+    """COM object の表示名を返す。"""
+    for attr_name in ("Name", "TaggedName", "TypeName", "name"):
+        value = getattr(obj, attr_name, None)
+        if isinstance(value, str) and value:
+            return value
+    return "<unknown>"
 
 
 def get_component_collection_names(collection: Any) -> list[str]:
@@ -475,6 +488,52 @@ def write_operation_spec(flowsheet: Any, spec: "OperationWriteSpec") -> None:
     set_quantity(operation, spec.variable_name, spec.value, (spec.unit,))
 
 
+def write_distillation_reflux_ratio_spec(
+    flowsheet: Any,
+    spec: "DistillationRefluxRatioWriteSpec",
+) -> None:
+    """蒸留塔 Reflux Ratio spec の GoalValue を書き込む。"""
+    reflux_spec = get_distillation_reflux_ratio_spec(flowsheet=flowsheet, operation_name=spec.operation_name)
+    try:
+        setattr(reflux_spec, REFLUX_RATIO_GOAL_ATTR_NAME, spec.reflux_ratio)
+    except Exception as exc:
+        raise RuntimeError(
+            f"{spec.operation_name}.{REFLUX_RATIO_SPEC_NAME}.{REFLUX_RATIO_GOAL_ATTR_NAME} "
+            f"を書き込めませんでした: {exc}"
+        ) from exc
+
+
+def get_distillation_reflux_ratio_spec(flowsheet: Any, operation_name: str) -> Any:
+    """蒸留塔 operation から Reflux Ratio spec を取得する。"""
+    operation = get_operation(flowsheet, operation_name)
+    column_flowsheet = getattr(operation, "ColumnFlowsheet", None)
+    if column_flowsheet is None:
+        raise RuntimeError(f"{operation_name}.ColumnFlowsheet を取得できませんでした。")
+    specifications = getattr(column_flowsheet, "Specifications", None)
+    if specifications is None:
+        raise RuntimeError(f"{operation_name}.ColumnFlowsheet.Specifications を取得できませんでした。")
+    for specification in iter_collection_items(specifications):
+        if object_name(specification) == REFLUX_RATIO_SPEC_NAME:
+            return specification
+    names = ", ".join(object_name(specification) for specification in iter_collection_items(specifications))
+    raise RuntimeError(f"{operation_name} の {REFLUX_RATIO_SPEC_NAME} spec を取得できませんでした: {names}")
+
+
+def read_distillation_reflux_ratio(flowsheet: Any, operation_name: str) -> float:
+    """蒸留塔 ColumnFlowsheet の還流比を読む。"""
+    operation = get_operation(flowsheet, operation_name)
+    column_flowsheet = getattr(operation, "ColumnFlowsheet", None)
+    if column_flowsheet is None:
+        raise RuntimeError(f"{operation_name}.ColumnFlowsheet を取得できませんでした。")
+    value = getattr(column_flowsheet, "RefluxRatio", None)
+    if isinstance(value, (int, float)):
+        return float(value)
+    read_value = get_quantity(column_flowsheet, "RefluxRatio", ("",))
+    if read_value is None:
+        raise RuntimeError(f"{operation_name}.ColumnFlowsheet.RefluxRatio を読み取れませんでした。")
+    return read_value
+
+
 def apply_hysys_control_plan(
     simulation_case: Any,
     plan: "HysysControlPlan",
@@ -489,10 +548,13 @@ def apply_hysys_control_plan(
         write_temperature_material_stream_spec(flowsheet=flowsheet, spec=spec)
     for spec in plan.operations:
         write_operation_spec(flowsheet=flowsheet, spec=spec)
+    for spec in plan.distillation_reflux_ratios:
+        write_distillation_reflux_ratio_spec(flowsheet=flowsheet, spec=spec)
 
     wait_for_hysys_calculation(simulation_case)
     readback = readback_hysys_control_plan(simulation_case=simulation_case, plan=plan)
     validate_hysys_control_readback(plan=plan, readback=readback)
+    validate_distillation_reflux_ratio_readback(simulation_case=simulation_case, plan=plan)
     return readback
 
 
@@ -553,6 +615,23 @@ def validate_hysys_control_readback(
             expected=spec.temperature_c,
             label=f"{spec.stream_name} temperature",
         )
+
+
+def validate_distillation_reflux_ratio_readback(
+    simulation_case: Any,
+    plan: "HysysControlPlan",
+) -> None:
+    """蒸留塔還流比 readback の一致を確認する。"""
+    if not plan.distillation_reflux_ratios:
+        return
+    flowsheet = get_flowsheet(simulation_case)
+    for spec in plan.distillation_reflux_ratios:
+        actual = read_distillation_reflux_ratio(flowsheet=flowsheet, operation_name=spec.operation_name)
+        if abs(actual - spec.reflux_ratio) > REFLUX_RATIO_READBACK_ABS_TOLERANCE:
+            raise RuntimeError(
+                f"{spec.operation_name} reflux ratio readback mismatch: "
+                f"expected={spec.reflux_ratio}, actual={actual}"
+            )
 
 
 def require_readback_stream(

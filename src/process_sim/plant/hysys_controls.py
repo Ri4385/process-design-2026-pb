@@ -67,6 +67,16 @@ class OperationWriteSpec(BaseModel):
     unit: str
 
 
+class DistillationRefluxRatioWriteSpec(BaseModel):
+    """蒸留塔の還流比書き込み条件。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    column_id: str
+    operation_name: str
+    reflux_ratio: float
+
+
 class HysysControlPlan(BaseModel):
     """収束後に HYSYS case へ適用する操作条件一式。"""
 
@@ -76,6 +86,7 @@ class HysysControlPlan(BaseModel):
     pressure_material_streams: tuple[PressureMaterialStreamWriteSpec, ...] = ()
     temperature_material_streams: tuple[TemperatureMaterialStreamWriteSpec, ...] = ()
     operations: tuple[OperationWriteSpec, ...] = ()
+    distillation_reflux_ratios: tuple[DistillationRefluxRatioWriteSpec, ...] = ()
 
 
 class InletConditionSettings(BaseModel):
@@ -218,6 +229,14 @@ def format_hysys_control_readback(
         lines.append("operations")
         for spec in plan.operations:
             lines.append(f"  {spec.operation_name:<24} {spec.variable_name}={spec.value:g} {spec.unit}")
+    if plan.distillation_reflux_ratios:
+        lines.append("")
+        lines.append("distillation reflux ratios")
+        for spec in plan.distillation_reflux_ratios:
+            lines.append(
+                f"  {spec.column_id:<24} "
+                f"operation={spec.operation_name} reflux_ratio={spec.reflux_ratio:g}"
+            )
     return "\n".join(lines)
 
 
