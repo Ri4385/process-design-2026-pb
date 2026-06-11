@@ -55,6 +55,7 @@
 - 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
 - production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
 - HYSYS case を開いたまま recycle 収束後に全体コスト評価まで行う入口は `uv run fast-plant-convergence-cost` で実行できる。
+- default 条件としてまとめた Steam/EB 比、反応器条件、分離器条件で全体コスト評価を行う入口は `uv run run-default-cost` で実行できる。
 - radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
 - HYSYS ケースの調査用スクリプトと部分最適化スクリプトは `scripts/` にある。
 - 分離機は HYSYS ケース側に構築されており、Python 側には HYSYS I/O と機器読み取り用のモジュールがある。
@@ -110,6 +111,7 @@ scripts/
   whole_plant_optuna_v1/              # 全体最適化 v1 の探索結果描画
   whole_plant_optuna_v2/              # 固定寸法 radial 方針の全体最適化 v2 探索結果描画
   whole_plant_optuna_v3/              # 2段 radial 厚み上限 1.0 m 方針の全体最適化 v3 探索結果描画
+  whole_plant_optuna_v4/              # 分離器操作条件込みの全体最適化 v4 探索結果描画
   export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
   read_hysys_equipment.py             # 既定 HYSYS case の機器読み取り確認
@@ -157,6 +159,9 @@ src/process_sim/
     reactor/
       parameters.py                   # 反応器パラメータ範囲と候補条件
       constraints.py                  # 反応器制約
+    separator/
+      parameters.py                   # 分離器操作条件の探索範囲
+      hysys_controls.py               # 分離器操作条件から HYSYS 書き込み plan を作る
     runner/
       radial_simple_optuna.py         # radial 反応器の簡易利益 Optuna runner
       radial_fast_plant_optuna.py     # plant 経済収支 Optuna runner
@@ -165,6 +170,7 @@ src/process_sim/
       whole_plant_optuna_v1.py        # 全体プラント年収支の Optuna runner
       whole_plant_optuna_v2.py        # 固定寸法 radial 方針の全体プラント年収支 Optuna runner
       whole_plant_optuna_v3.py        # 2段 radial 厚み上限 1.0 m 方針の全体プラント年収支 Optuna runner
+      whole_plant_optuna_v4.py        # 分離器操作条件込みの全体プラント年収支 Optuna runner
   separator/
     equipment.py                      # HYSYS から読んだ機器状態モデル
     equipment_log.py                  # 機器読み取り確認用の標準出力
@@ -178,8 +184,12 @@ src/process_sim/
       process_equipment.py            # 機器一式の組み立て
       rotating_equipment.py           # ポンプ、コンプレッサー読み取り
   plant/
+    cases/
+      models.py                     # plant default case の型
+      default.py                    # default 条件の Steam/EB 比、反応器条件、分離器条件
     const.py                         # plant 共通固定値
     convergence.py                   # plant recycle 収束計算
+    default_case_runner.py           # default 条件で convergence と cost 評価を実行
     economics.py                     # 既存の暫定経済計算
     fast_convergence_cost.py         # HYSYS session 再利用 convergence と全体コスト評価
     fast_convergence.py              # HYSYS session 再利用 convergence
@@ -224,6 +234,8 @@ src/process_sim/
   固定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、明示的な Python モデルへ変換する。読み取れない必須値は補完せず、例外として扱う。
 - `src/process_sim/plant/`
   反応器と分離系を接続し、プラント全体で固定される主要 stream の記録を扱う。
+- `src/process_sim/plant/cases/`
+  default 条件など、plant 全体の実行条件を置く。`default.py` には Steam/EB 比、反応器条件、分離器条件をまとめる。HYSYS case path はここに置かず、`plant/const.py` を正とする。
 - `src/process_sim/plant/cost/`
   収束後の `PlantConvergenceResult`、`ReactorResult`、`ProcessEquipment` から、収入、原料費、装置費、utility、固定費、T-Q 用 stream、年間収支を計算する。既存の `plant/economics.py` とは分けて管理する。
 - `scripts/`
@@ -236,6 +248,8 @@ src/process_sim/
   全体最適化 v2 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。v2 は radial 反応器の内半径 `1.0 m`、高さ `6.0 m` を全段共通で固定し、空塔速度を制約ではなく確認指標として扱う。
 - `scripts/whole_plant_optuna_v3/`
   全体最適化 v3 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。v3 は v2 をベースに、radial 2段の触媒層厚み上限だけ `1.0 m` に広げる。
+- `scripts/whole_plant_optuna_v4/`
+  全体最適化 v4 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。v4 は v3 をベースに、1基目デカンター温度と SM分離塔還流比を探索変数に加える。
 - `data/`
   参考資料や入力データを置く。
 - `data/hysys/`
@@ -368,6 +382,14 @@ uv run fast-plant-convergence-cost
 
 この入口も CLI 引数を持たない。`fast-plant-convergence` と同じ収束計算後に、同じ HYSYS session から `ProcessEquipment` を読み取り、`plant/cost/` で年間収支を評価する。出力には、コスト Summary、機器詳細、熱回収、T-Q stream、熱回収後の外部 utility load を含める。
 
+default 条件としてまとめた Steam/EB 比、反応器条件、分離器条件で全体コスト評価を実行する場合は、以下を使う。
+
+```powershell
+uv run run-default-cost
+```
+
+この入口は CLI 引数を持たない。HYSYS case path と目標 SM 流量は既存の `src/process_sim/plant/const.py` の値を使う。実行条件は `src/process_sim/plant/cases/default.py` にまとめる。
+
 固定 feed plan を直接書いて実行したい場合は、`scripts/run_fixed_plant_convergence.py` の `FEED_PLAN` を編集して実行する。
 
 radial 反応器の簡易利益 tuning は以下で行う。
@@ -440,6 +462,20 @@ v3 探索後の図と上位 trial 表は以下で生成する。
 
 ```powershell
 uv run python scripts/whole_plant_optuna_v3/plot_results.py
+```
+
+1基目デカンター温度と SM分離塔還流比を含めた全体最適化 v4 は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.whole_plant_optuna_v4
+```
+
+v4 は `data/optuna/whole_plant_optuna_v4.db` に保存する。radial 2段を初期探索対象とし、分離器操作条件として `separator_feed` 温度 `55` から `80 ℃`、SM分離塔還流比 `6.3` から `8.5` を動かす。HYSYS を起動するため、実行はユーザーが行う。
+
+v4 探索後の図と上位 trial 表は以下で生成する。
+
+```powershell
+uv run python scripts/whole_plant_optuna_v4/plot_results.py
 ```
 
 

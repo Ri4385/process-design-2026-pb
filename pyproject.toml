@@ -16,6 +16,7 @@ dependencies = [
     "optuna>=4.8.0",
     "pydantic>=2.13.4",
     "pywin32>=311",
+    "scikit-learn>=1.9.0",
 ]
 
 [dependency-groups]
@@ -41,6 +42,7 @@ run-plant-convergence = "process_sim.plant.convergence:run_plant_convergence_mai
 fast-production-target = "process_sim.plant.fast_production_target:fast_production_target_main"
 fast-plant-convergence = "process_sim.plant.fast_convergence:fast_plant_convergence_main"
 fast-plant-convergence-cost = "process_sim.plant.fast_convergence_cost:fast_plant_convergence_cost_main"
+run-default-cost = "process_sim.plant.default_case_runner:run_default_cost_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/process_sim"]
