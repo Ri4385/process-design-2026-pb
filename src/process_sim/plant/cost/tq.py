@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from process_sim.plant.cost.equipment import cooler_outlet_temperature_for_cost
-from process_sim.plant.cost.models import ExternalUtilityLoad, HeatRecoveryResult, TQStream
+from process_sim.plant.cost.models import (
+    ExternalUtilityLoad,
+    HeatRecoveryResult,
+    TQStream,
+)
 from process_sim.plant.cost.utility import (
+    column_condenser_uses_cooling_water,
     cooler_uses_cooling_water,
     selected_heater_steam_name,
     selected_reboiler_steam_name,
@@ -22,7 +27,9 @@ def build_tq_streams_no_heat_recovery(
     streams.extend(cooler_tq_streams(equipment, case_name="no heat recovery"))
     streams.extend(heater_tq_streams(equipment, case_name="no heat recovery"))
     streams.extend(column_tq_streams(equipment, case_name="no heat recovery"))
-    streams.extend(reactor_reheat_tq_streams(reactor_result, case_name="no heat recovery"))
+    streams.extend(
+        reactor_reheat_tq_streams(reactor_result, case_name="no heat recovery")
+    )
     return tuple(streams)
 
 
@@ -53,10 +60,20 @@ def build_tq_streams_with_heat_recovery(
         ),
     ]
 
-    streams.extend(cooler_tq_streams(equipment, case_name="with heat recovery", heat_recovery=heat_recovery))
-    streams.extend(heater_tq_streams(equipment, case_name="with heat recovery", heat_recovery=heat_recovery))
+    streams.extend(
+        cooler_tq_streams(
+            equipment, case_name="with heat recovery", heat_recovery=heat_recovery
+        )
+    )
+    streams.extend(
+        heater_tq_streams(
+            equipment, case_name="with heat recovery", heat_recovery=heat_recovery
+        )
+    )
     streams.extend(column_tq_streams(equipment, case_name="with heat recovery"))
-    streams.extend(reactor_reheat_tq_streams(reactor_result, case_name="with heat recovery"))
+    streams.extend(
+        reactor_reheat_tq_streams(reactor_result, case_name="with heat recovery")
+    )
     return tuple(streams)
 
 
@@ -97,7 +114,12 @@ def build_external_utility_loads_with_heat_recovery(
         duty = residual_heater_duty_kw(heater, heat_recovery)
         if duty <= 0.0:
             continue
-        if heater.id in {"steam_inlet_heater1", "steam_inlet_heater2", "steam_inlet_heater3", "reactor_trim_heater"}:
+        if heater.id in {
+            "steam_inlet_heater1",
+            "steam_inlet_heater2",
+            "steam_inlet_heater3",
+            "reactor_trim_heater",
+        }:
             loads.append(
                 ExternalUtilityLoad(
                     utility="furnace",
@@ -120,7 +142,7 @@ def build_external_utility_loads_with_heat_recovery(
         )
 
     for column in equipment.distillation_columns:
-        if column.top_temperature_c - 30.0 >= 10.0:
+        if column_condenser_uses_cooling_water(column.top_temperature_c):
             loads.append(
                 ExternalUtilityLoad(
                     utility="cooling water",
@@ -151,7 +173,9 @@ def build_external_utility_loads_with_heat_recovery(
             )
         )
 
-    for stream in reactor_reheat_tq_streams(reactor_result, case_name="with heat recovery"):
+    for stream in reactor_reheat_tq_streams(
+        reactor_result, case_name="with heat recovery"
+    ):
         loads.append(
             ExternalUtilityLoad(
                 utility="furnace",
@@ -240,7 +264,9 @@ def heater_tq_streams(
     return tuple(streams)
 
 
-def column_tq_streams(equipment: ProcessEquipment, case_name: str) -> tuple[TQStream, ...]:
+def column_tq_streams(
+    equipment: ProcessEquipment, case_name: str
+) -> tuple[TQStream, ...]:
     """蒸留塔 condenser/reboiler を T-Q stream 化する。"""
     streams: list[TQStream] = []
     for column in equipment.distillation_columns:
@@ -269,7 +295,9 @@ def column_tq_streams(equipment: ProcessEquipment, case_name: str) -> tuple[TQSt
     return tuple(streams)
 
 
-def reactor_reheat_tq_streams(reactor_result: ReactorResult, case_name: str) -> tuple[TQStream, ...]:
+def reactor_reheat_tq_streams(
+    reactor_result: ReactorResult, case_name: str
+) -> tuple[TQStream, ...]:
     """反応器段間再加熱を cold stream として T-Q stream 化する。"""
     streams: list[TQStream] = []
     stage_logs = reactor_result.log.stage_logs

@@ -35,6 +35,17 @@ class TrialSummary(BaseModel):
     attrs: dict[str, object]
 
 
+class ParameterImportanceSummary(BaseModel):
+    """parameter importance の表と描画に使う要約。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    study_name: str
+    rank: int
+    parameter: str
+    importance: float
+
+
 def main() -> None:
     """radial 2段 study から図と表を生成する。"""
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,9 +59,14 @@ def main() -> None:
         study=study,
         output_path=MEDIA_DIR / "objective_trials.png",
     )
+    parameter_importances = parameter_importance_summaries(study=study)
     plot_parameter_importance(
-        study=study,
+        summaries=parameter_importances,
         output_path=MEDIA_DIR / "parameter_importance.png",
+    )
+    write_parameter_importances_csv(
+        summaries=parameter_importances,
+        output_path=RESULTS_DIR / "parameter_importance.csv",
     )
     plot_slice(
         study=study,
@@ -113,21 +129,76 @@ def plot_objective_trials(study: optuna.Study, output_path: Path) -> None:
     save_figure(fig=fig, output_path=output_path)
 
 
-def plot_parameter_importance(study: optuna.Study, output_path: Path) -> None:
+def parameter_importance_summaries(
+    study: optuna.Study,
+) -> tuple[ParameterImportanceSummary, ...]:
+    """parameter importance を表用 summary へ変換する。"""
+    if len(complete_trials(study)) < 2:
+        return tuple()
+
+    try:
+        importances = get_param_importances(study)
+    except Exception as exc:
+        msg = f"Failed to calculate parameter importances: {study.study_name}"
+        raise RuntimeError(msg) from exc
+
+    return tuple(
+        ParameterImportanceSummary(
+            study_name=study.study_name,
+            rank=rank,
+            parameter=parameter,
+            importance=float(importance),
+        )
+        for rank, (parameter, importance) in enumerate(importances.items(), start=1)
+    )
+
+
+def plot_parameter_importance(
+    summaries: tuple[ParameterImportanceSummary, ...], output_path: Path
+) -> None:
     """parameter importance を保存する。"""
     fig, ax = plt.subplots(figsize=(8, 5))
-    if len(complete_trials(study)) < 2:
+    if not summaries:
         ax.text(0.5, 0.5, "not enough completed trials", ha="center", va="center")
         ax.axis("off")
         save_figure(fig=fig, output_path=output_path)
         return
 
-    importances = get_param_importances(study)
-    items = tuple(reversed(tuple(importances.items())))
-    ax.barh([name for name, _ in items], [value for _, value in items])
+    items = tuple(reversed(summaries))
+    ax.barh(
+        [summary.parameter for summary in items],
+        [summary.importance for summary in items],
+    )
+    ax.set_title(STUDY_NAME)
     ax.set_xlabel("importance")
     ax.grid(False)
     save_figure(fig=fig, output_path=output_path)
+
+
+def write_parameter_importances_csv(
+    summaries: tuple[ParameterImportanceSummary, ...], output_path: Path
+) -> None:
+    """parameter importance の数値表を CSV へ保存する。"""
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "study_name",
+                "rank",
+                "parameter",
+                "importance",
+            ],
+        )
+        writer.writeheader()
+        for summary in summaries:
+            writer.writerow(
+                {
+                    "study_name": summary.study_name,
+                    "rank": summary.rank,
+                    "parameter": summary.parameter,
+                    "importance": f"{summary.importance:.10g}",
+                }
+            )
 
 
 def plot_slice(study: optuna.Study, output_path: Path) -> None:

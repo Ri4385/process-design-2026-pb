@@ -10,21 +10,32 @@ from process_sim.plant.cost.common import (
 )
 from process_sim.plant.cost.constants import (
     ANCILLARY_FACILITIES_FACTOR,
+    COOLING_WATER_INLET_C,
+    COOLING_WATER_OUTLET_C,
     DEPRECIATION_YEARS,
     PLANT_CAPITAL_FACTOR,
+    PROPYLENE_REFRIGERANT_TEMPERATURE_C,
     U_KJ_M2_K_H,
 )
-from process_sim.plant.cost.models import CapitalCostResult, CostBreakdownItem, HeatRecoveryResult
+from process_sim.plant.cost.models import (
+    CapitalCostResult,
+    CostBreakdownItem,
+    HeatRecoveryResult,
+)
 from process_sim.reactor.core.models import ReactorResult
 from process_sim.separator.equipment import Cooler, Heater, ProcessEquipment
 
 
-def evaluate_capital_cost(equipment: ProcessEquipment, reactor_result: ReactorResult) -> CapitalCostResult:
+def evaluate_capital_cost(
+    equipment: ProcessEquipment, reactor_result: ReactorResult
+) -> CapitalCostResult:
     """ProcessEquipment と ReactorResult から建設費を計算する。"""
     heat_recovery = evaluate_c11_h22_heat_recovery(equipment)
     reactor = evaluate_reactor_capital(reactor_result)
     columns, column_details = evaluate_distillation_columns(equipment)
-    heat_exchangers, heat_exchanger_details = evaluate_heat_exchangers(equipment, heat_recovery)
+    heat_exchangers, heat_exchanger_details = evaluate_heat_exchangers(
+        equipment, heat_recovery
+    )
     decanters, decanter_details = evaluate_decanters(equipment)
     pumps, pump_details = evaluate_pumps(equipment)
     compressors, compressor_details = evaluate_compressors(equipment)
@@ -64,7 +75,11 @@ def evaluate_capital_cost(equipment: ProcessEquipment, reactor_result: ReactorRe
 
 def with_annualized_cost(item: CostBreakdownItem) -> CostBreakdownItem:
     """建設費係数を配分した年換算寄与へ変換する。"""
-    return item.model_copy(update={"yen_per_year": item.capital_yen * PLANT_CAPITAL_FACTOR / DEPRECIATION_YEARS})
+    return item.model_copy(
+        update={
+            "yen_per_year": item.capital_yen * PLANT_CAPITAL_FACTOR / DEPRECIATION_YEARS
+        }
+    )
 
 
 def evaluate_c11_h22_heat_recovery(equipment: ProcessEquipment) -> HeatRecoveryResult:
@@ -91,10 +106,14 @@ def evaluate_c11_h22_heat_recovery(equipment: ProcessEquipment) -> HeatRecoveryR
         h22_temperature_limited_duty_kw,
     )
     hot_outlet_c = c11.inlet_temperature_c - (
-        (c11.inlet_temperature_c - c11.outlet_temperature_c) * recovered_duty_kw / abs(c11.duty_kw)
+        (c11.inlet_temperature_c - c11.outlet_temperature_c)
+        * recovered_duty_kw
+        / abs(c11.duty_kw)
     )
     cold_outlet_c = h22.inlet_temperature_c + (
-        (h22.outlet_temperature_c - h22.inlet_temperature_c) * recovered_duty_kw / abs(h22.duty_kw)
+        (h22.outlet_temperature_c - h22.inlet_temperature_c)
+        * recovered_duty_kw
+        / abs(h22.duty_kw)
     )
     lmtd_k = log_lmtd_with_context(
         label=f"{c11.id} -> {h22.id} heat recovery",
@@ -141,19 +160,24 @@ def evaluate_reactor_capital(reactor_result: ReactorResult) -> CostBreakdownItem
     return CostBreakdownItem(name="reactor", capital_yen=capital_yen)
 
 
-def evaluate_distillation_columns(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
+def evaluate_distillation_columns(
+    equipment: ProcessEquipment,
+) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
     """蒸留塔本体、コンデンサー、リボイラーの直接機器費を計算する。"""
     details: list[CostBreakdownItem] = []
     total = 0.0
     for column in equipment.distillation_columns:
         shell = 1_500_000.0 * column.diameter_m**1.066 * column.height_m**0.82
+        condenser_cold_inlet_c, condenser_cold_outlet_c = (
+            column_condenser_utility_temperature_range(column.top_temperature_c)
+        )
         condenser = heat_exchanger_capital_yen(
             area_m2=area_for_utility_exchanger(
                 duty_kw=column.condenser_duty_kw,
                 hot_inlet_c=column.top_temperature_c,
                 hot_outlet_c=column.top_temperature_c,
-                cold_inlet_c=30.0,
-                cold_outlet_c=45.0,
+                cold_inlet_c=condenser_cold_inlet_c,
+                cold_outlet_c=condenser_cold_outlet_c,
                 u_key="liquid_condensing_gas",
                 label=f"{column.id} condenser {column.condenser_energy_name}",
             ),
@@ -162,7 +186,9 @@ def evaluate_distillation_columns(equipment: ProcessEquipment) -> tuple[CostBrea
         reboiler = heat_exchanger_capital_yen(
             area_m2=area_for_constant_hot_utility(
                 duty_kw=column.reboiler_duty_kw,
-                hot_temperature_c=selected_reboiler_steam_temperature_c(column.bottom_temperature_c),
+                hot_temperature_c=selected_reboiler_steam_temperature_c(
+                    column.bottom_temperature_c
+                ),
                 cold_inlet_c=column.bottom_temperature_c,
                 cold_outlet_c=column.bottom_temperature_c,
                 u_key="boiling_liquid_condensing_gas",
@@ -180,7 +206,9 @@ def evaluate_distillation_columns(equipment: ProcessEquipment) -> tuple[CostBrea
                 note=f"shell + condenser {column.condenser_energy_name} + reboiler {column.reboiler_energy_name}",
             )
         )
-    return CostBreakdownItem(name="distillation columns", capital_yen=total), tuple(details)
+    return CostBreakdownItem(name="distillation columns", capital_yen=total), tuple(
+        details
+    )
 
 
 def evaluate_heat_exchangers(
@@ -234,7 +262,9 @@ def evaluate_heat_exchangers(
     return CostBreakdownItem(name="heat exchangers", capital_yen=total), tuple(details)
 
 
-def evaluate_decanters(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
+def evaluate_decanters(
+    equipment: ProcessEquipment,
+) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
     """デカンターの直接機器費を計算する。"""
     details = tuple(
         CostBreakdownItem(
@@ -253,10 +283,14 @@ def evaluate_decanters(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, 
         )
         for decanter in equipment.decanters
     )
-    return CostBreakdownItem(name="decanters", capital_yen=sum(item.capital_yen for item in details)), details
+    return CostBreakdownItem(
+        name="decanters", capital_yen=sum(item.capital_yen for item in details)
+    ), details
 
 
-def evaluate_pumps(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
+def evaluate_pumps(
+    equipment: ProcessEquipment,
+) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
     """ポンプの直接機器費を計算する。"""
     details = tuple(
         CostBreakdownItem(
@@ -276,10 +310,14 @@ def evaluate_pumps(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, tupl
         )
         for pump in equipment.pumps
     )
-    return CostBreakdownItem(name="pumps", capital_yen=sum(item.capital_yen for item in details)), details
+    return CostBreakdownItem(
+        name="pumps", capital_yen=sum(item.capital_yen for item in details)
+    ), details
 
 
-def evaluate_compressors(equipment: ProcessEquipment) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
+def evaluate_compressors(
+    equipment: ProcessEquipment,
+) -> tuple[CostBreakdownItem, tuple[CostBreakdownItem, ...]]:
     """コンプレッサーの直接機器費を計算する。"""
     details = tuple(
         CostBreakdownItem(
@@ -290,7 +328,9 @@ def evaluate_compressors(equipment: ProcessEquipment) -> tuple[CostBreakdownItem
         )
         for compressor in equipment.compressors
     )
-    return CostBreakdownItem(name="compressors", capital_yen=sum(item.capital_yen for item in details)), details
+    return CostBreakdownItem(
+        name="compressors", capital_yen=sum(item.capital_yen for item in details)
+    ), details
 
 
 def heat_exchanger_capital_yen(area_m2: float, k_factor: float) -> float:
@@ -314,7 +354,12 @@ def bare_module_cost_yen(
     if a <= 0.0:
         raise ValueError("bare module size parameter must be positive")
     log_a = math.log10(a)
-    return 10.0 ** (k1 + k2 * log_a + k3 * log_a**2) * (b1 + b2 * fp * fm) * (813.0 / 397.0) * 160.0
+    return (
+        10.0 ** (k1 + k2 * log_a + k3 * log_a**2)
+        * (b1 + b2 * fp * fm)
+        * (813.0 / 397.0)
+        * 160.0
+    )
 
 
 def area_for_constant_hot_utility(
@@ -333,7 +378,9 @@ def area_for_constant_hot_utility(
         cold_inlet_c=cold_inlet_c,
         cold_outlet_c=cold_outlet_c,
     )
-    return heat_exchanger_area_m2(duty_kw=duty_kw, u_kj_m2_k_h=U_KJ_M2_K_H[u_key], lmtd_k=lmtd)
+    return heat_exchanger_area_m2(
+        duty_kw=duty_kw, u_kj_m2_k_h=U_KJ_M2_K_H[u_key], lmtd_k=lmtd
+    )
 
 
 def area_for_utility_exchanger(
@@ -353,7 +400,9 @@ def area_for_utility_exchanger(
         cold_inlet_c=cold_inlet_c,
         cold_outlet_c=cold_outlet_c,
     )
-    return heat_exchanger_area_m2(duty_kw=duty_kw, u_kj_m2_k_h=U_KJ_M2_K_H[u_key], lmtd_k=lmtd)
+    return heat_exchanger_area_m2(
+        duty_kw=duty_kw, u_kj_m2_k_h=U_KJ_M2_K_H[u_key], lmtd_k=lmtd
+    )
 
 
 def log_lmtd_with_context(
@@ -386,6 +435,15 @@ def selected_reboiler_steam_temperature_c(bottom_temperature_c: float) -> float:
     if 160.0 - bottom_temperature_c >= 20.0:
         return 160.0
     return 250.0
+
+
+def column_condenser_utility_temperature_range(
+    top_temperature_c: float,
+) -> tuple[float, float]:
+    """蒸留塔 condenser に使う冷却 utility の代表温度範囲を返す。"""
+    if top_temperature_c - COOLING_WATER_OUTLET_C >= 10.0:
+        return COOLING_WATER_INLET_C, COOLING_WATER_OUTLET_C
+    return PROPYLENE_REFRIGERANT_TEMPERATURE_C, PROPYLENE_REFRIGERANT_TEMPERATURE_C
 
 
 def residual_cooler_duty_kw(cooler: Cooler, heat_recovery: HeatRecoveryResult) -> float:
@@ -459,7 +517,12 @@ def heater_area_m2(heater: Heater, duty_kw: float) -> float:
 
 def selected_heater_utility_temperature_c(heater: Heater) -> float:
     """heater に使う外部加熱源の代表温度を返す。"""
-    if heater.id in {"steam_inlet_heater1", "steam_inlet_heater2", "steam_inlet_heater3", "reactor_trim_heater"}:
+    if heater.id in {
+        "steam_inlet_heater1",
+        "steam_inlet_heater2",
+        "steam_inlet_heater3",
+        "reactor_trim_heater",
+    }:
         return 900.0
     if 130.0 - max(heater.inlet_temperature_c, heater.outlet_temperature_c) >= 20.0:
         return 130.0

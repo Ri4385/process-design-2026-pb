@@ -51,4 +51,4 @@ dist/
 build/
 
 # Snapshots of source code (if any)
-data/code_snapshot/source_snapshot.txt
+data/code_snapshot/

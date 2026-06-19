@@ -41,7 +41,7 @@ RADIAL_INNER_RADIUS_M = 1.0
 RADIAL_BED_HEIGHT_M = 6.0
 
 ERGUN_PARAMETERS = ErgunParameters(
-    pellet_diameter_m=0.003,
+    pellet_diameter_m=0.005,
     bed_void_fraction=0.431,
     catalyst_bulk_density_kg_m3=1422.0,
     ergun_a=1.75,

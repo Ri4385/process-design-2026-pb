@@ -7,7 +7,9 @@ from pathlib import Path
 
 
 DEFAULT_OUTPUT_PATH = Path("data/code_snapshot/source_snapshot.txt")
+SRC_OUTPUT_PATH = Path("data/code_snapshot/src_snapshot.txt")
 SOURCE_ROOTS = (Path("src"), Path("scripts"))
+SRC_ROOTS = (Path("src"),)
 EXCLUDED_DIR_NAMES = {"__pycache__", ".pytest_cache", ".ruff_cache", ".venv"}
 
 
@@ -55,14 +57,24 @@ def build_snapshot(files: list[Path]) -> str:
     return "\n".join(render_file(path) for path in files)
 
 
-def main() -> None:
-    """コード snapshot を生成する。"""
-    args = parse_args()
-    output_path = args.output
-    files = collect_source_files()
+def write_snapshot(output_path: Path, roots: tuple[Path, ...]) -> None:
+    """指定 root 群のコード snapshot を生成する。"""
+    files = collect_source_files(roots=roots)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(build_snapshot(files), encoding="utf-8")
     print(f"wrote {len(files)} files to {output_path.as_posix()}")
+
+
+def write_src_snapshot(output_path: Path = SRC_OUTPUT_PATH) -> None:
+    """src の Python コードだけを snapshot として生成する。"""
+    write_snapshot(output_path=output_path, roots=SRC_ROOTS)
+
+
+def main() -> None:
+    """コード snapshot を生成する。"""
+    args = parse_args()
+    write_snapshot(output_path=args.output, roots=SOURCE_ROOTS)
+    write_src_snapshot()
 
 
 if __name__ == "__main__":
