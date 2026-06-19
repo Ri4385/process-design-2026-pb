@@ -48,6 +48,7 @@ class RadialReactorRunConditions:
     interstage_reheater_pressure_drop_pa: float
     segments_per_stage: int
     profile_points_per_stage: int
+    bed_height_m: float = 6.0
     min_outlet_pressure_kpa_abs: float = 60.0
     min_bed_outlet_velocity_m_per_s: float = 1.0
 

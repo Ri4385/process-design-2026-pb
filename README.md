@@ -107,6 +107,9 @@ scripts/
   reactor_sensitivity_analysis/       # 反応器感度分析
   reactor_pareto/                     # 旧 radial pareto
   reactor_pareto_v2/                  # radial・axial Pareto front 描画
+  whole_plant_optuna_v1/              # 全体最適化 v1 の探索結果描画
+  whole_plant_optuna_v2/              # 固定寸法 radial 方針の全体最適化 v2 探索結果描画
+  whole_plant_optuna_v3/              # 2段 radial 厚み上限 1.0 m 方針の全体最適化 v3 探索結果描画
   export_code_snapshot.py             # スナップショット出力
   inspect_hysys_case.py               # HYSYS ケース調査
   read_hysys_equipment.py             # 既定 HYSYS case の機器読み取り確認
@@ -159,6 +162,9 @@ src/process_sim/
       radial_fast_plant_optuna.py     # plant 経済収支 Optuna runner
       reactor_pareto_optuna.py        # 旧radial反応器の Pareto front 探索 runner
       reactor_pareto_v2_optuna.py     # radial・axial 反応器の Pareto front 探索 runner
+      whole_plant_optuna_v1.py        # 全体プラント年収支の Optuna runner
+      whole_plant_optuna_v2.py        # 固定寸法 radial 方針の全体プラント年収支 Optuna runner
+      whole_plant_optuna_v3.py        # 2段 radial 厚み上限 1.0 m 方針の全体プラント年収支 Optuna runner
   separator/
     equipment.py                      # HYSYS から読んだ機器状態モデル
     equipment_log.py                  # 機器読み取り確認用の標準出力
@@ -224,6 +230,12 @@ src/process_sim/
   実行スクリプト、HYSYS 接続確認、HYSYS ケース調査、反応器と HYSYS の接続試行、デカンターと蒸留塔の部分最適化を置く。部分最適化に固有の HYSYS ケース、診断 JSON、図も各ディレクトリ内で管理する。
 - `scripts/reactor_pareto_v2/`
   radial・axial 反応器の全 trial と Pareto front の図を生成する。
+- `scripts/whole_plant_optuna_v1/`
+  全体最適化 v1 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。
+- `scripts/whole_plant_optuna_v2/`
+  全体最適化 v2 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。v2 は radial 反応器の内半径 `1.0 m`、高さ `6.0 m` を全段共通で固定し、空塔速度を制約ではなく確認指標として扱う。
+- `scripts/whole_plant_optuna_v3/`
+  全体最適化 v3 の SQLite storage を読み、探索履歴、目的関数散布図、parameter importance、slice plot、上位 trial 表を生成する。v3 は v2 をベースに、radial 2段の触媒層厚み上限だけ `1.0 m` に広げる。
 - `data/`
   参考資料や入力データを置く。
 - `data/hysys/`
@@ -387,6 +399,48 @@ uv run python scripts/reactor_pareto_v2/select_best_condition.py
 ```
 
 単通反応率の下限は `scripts/reactor_pareto_v2/select_best_condition.py` 冒頭の `MIN_EB_CONVERSION` で指定する。
+
+全体プラント年収支を目的関数にした Optuna 探索 v1 は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.whole_plant_optuna_v1
+```
+
+初期設定では radial 2段と3段を各 50 trial 実行し、axial 2段と3段は study 定義のみで trial 数 0 とする。HYSYS を起動するため、実行はユーザーが行う。
+
+探索後の図と上位 trial 表は以下で生成する。
+
+```powershell
+uv run python scripts/whole_plant_optuna_v1/plot_results.py
+```
+
+固定寸法 radial 方針の全体最適化 v2 は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.whole_plant_optuna_v2
+```
+
+v2 は `data/optuna/whole_plant_optuna_v2.db` に保存する。radial 2段と3段を探索対象とし、axial 2段と3段は study 定義のみで trial 数 0 とする。HYSYS を起動するため、実行はユーザーが行う。
+
+v2 探索後の図と上位 trial 表は以下で生成する。
+
+```powershell
+uv run python scripts/whole_plant_optuna_v2/plot_results.py
+```
+
+2段 radial の触媒層厚み上限を `1.0 m` に広げた全体最適化 v3 は以下で行う。
+
+```powershell
+uv run python -m process_sim.optimization.runner.whole_plant_optuna_v3
+```
+
+v3 は `data/optuna/whole_plant_optuna_v3.db` に保存する。radial 2段と3段を探索対象とし、3段条件は v2 と同じ範囲を使う。HYSYS を起動するため、実行はユーザーが行う。
+
+v3 探索後の図と上位 trial 表は以下で生成する。
+
+```powershell
+uv run python scripts/whole_plant_optuna_v3/plot_results.py
+```
 
 
 ## 主要文書

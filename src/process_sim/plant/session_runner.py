@@ -14,6 +14,7 @@ from process_sim.plant.const import DEFAULT_HYSYS_CASE_PATH
 from process_sim.plant.models import PlantRunRecord
 from process_sim.plant.summary import (
     format_pfr_reactor_report,
+    format_plant_run_summary,
     format_radial_reactor_report,
     format_reactor_calculation_summary,
     format_recycle_product_component_summary,
@@ -116,6 +117,7 @@ class OpenHysysPlantRunner:
             metadata=metadata,
         )
         logger.info("\n%s", format_recycle_product_component_summary(record))
+        logger.info("\n%s", format_plant_run_summary(record))
         logger.info("plant run finished in %.2f s", time.perf_counter() - plant_started_at)
         return record
 

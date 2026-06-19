@@ -176,8 +176,10 @@ C_cooler,j = 1.5e6 * A_j^0.65
 冷却器年換算費は次である。
 
 ```text
-C_cooler,annual = sum(C_cooler,j) / 7
+C_cooler,annual = 2.5 * sum(C_cooler,j) / 7
 ```
+
+係数 2.5 は、機器費から建設費を概算するための係数として扱う。
 
 冷却水クーラーの LMTD では、冷却水入口30 ℃、冷却水出口40 ℃を使う。プロピレン冷媒クーラーの LMTD では、0 ℃冷媒を使う。
 
@@ -217,7 +219,7 @@ C_reheat,steam = Q_reheat,MJ/year * 1.0
 
 ```text
 A_reheat = Q_reheat / (U_reheat * DeltaT_lm,reheat)
-C_reheater,annual = 1.5e6 * A_reheat^0.65 / 7
+C_reheater,annual = 2.5 * 1.5e6 * A_reheat^0.65 / 7
 ```
 
 `U_reheat` は、受熱側が水相、与熱側が飽和スチーム凝縮であるため、表 C.1 の「液 - ガス(凝縮)」相当として次を用いる。
@@ -232,7 +234,7 @@ U_reheat = 3600 kJ/(m2 K h)
 
 ```text
 C_decanter,annual
-= (C_decanter,1 + C_decanter,2) / 7
+= 2.5 * (C_decanter,1 + C_decanter,2) / 7
 ```
 
 HYSYS からデカンター体積を直接読めない場合は、油相と水相の体積流量、滞留時間から外部推算する。
