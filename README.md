@@ -61,7 +61,7 @@
 ## セットアップ
 
 ```powershell
-git clone https://github.com/Ri4385/process-design-2026.git
+git clone https://github.com/Ri4385/process-design-2026-pb.git
 cd process-design-2026-pb
 uv sync
 ```
