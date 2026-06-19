@@ -8,8 +8,22 @@ from pathlib import Path
 
 DEFAULT_OUTPUT_PATH = Path("data/code_snapshot/source_snapshot.txt")
 SRC_OUTPUT_PATH = Path("data/code_snapshot/src_snapshot.txt")
+MAJOR_SRC_OUTPUT_PATH = Path("data/code_snapshot/major_src_snapshot.txt")
+REACTOR_SRC_OUTPUT_PATH = Path("data/code_snapshot/reactor_src_snapshot.txt")
 SOURCE_ROOTS = (Path("src"), Path("scripts"))
 SRC_ROOTS = (Path("src"),)
+MAJOR_SRC_ROOTS = (
+    Path("src/process_sim/reactor"),
+    Path("src/process_sim/constants"),
+    Path("src/process_sim/plant"),
+    Path("src/process_sim/hysys"),
+    Path("src/process_sim/cost"),
+    Path("src/process_sim/separation"),
+)
+REACTOR_SRC_ROOTS = (
+    Path("src/process_sim/constants"),
+    Path("src/process_sim/reactor"),
+)
 EXCLUDED_DIR_NAMES = {"__pycache__", ".pytest_cache", ".ruff_cache", ".venv"}
 
 
@@ -70,11 +84,23 @@ def write_src_snapshot(output_path: Path = SRC_OUTPUT_PATH) -> None:
     write_snapshot(output_path=output_path, roots=SRC_ROOTS)
 
 
+def write_major_src_snapshot(output_path: Path = MAJOR_SRC_OUTPUT_PATH) -> None:
+    """主要な src ディレクトリだけを snapshot として生成する。"""
+    write_snapshot(output_path=output_path, roots=MAJOR_SRC_ROOTS)
+
+
+def write_reactor_src_snapshot(output_path: Path = REACTOR_SRC_OUTPUT_PATH) -> None:
+    """反応器計算に必要な src だけを snapshot として生成する。"""
+    write_snapshot(output_path=output_path, roots=REACTOR_SRC_ROOTS)
+
+
 def main() -> None:
     """コード snapshot を生成する。"""
     args = parse_args()
     write_snapshot(output_path=args.output, roots=SOURCE_ROOTS)
     write_src_snapshot()
+    write_major_src_snapshot()
+    write_reactor_src_snapshot()
 
 
 if __name__ == "__main__":
