@@ -21,9 +21,8 @@
 
 主な流れは、反応器で反応させたのち、デカンターで油相(SM, EBなど)と水相、オフガス(エチレン, メタンなど)に分離し、SM, EB, TL, BZを3つの蒸留塔を使って分離する。EBとスチームはリサイクルを行う。ブロックフロー図、プロセスフロー図は下記のとおりである。
 
-(作成中)
+![](data\media\image.png)
 
-**プロセスフロー図**
 
 ## このリポジトリの位置づけ
 
@@ -38,28 +37,10 @@
 - 設計判断と作業記録
 - 最終レポート用の技術的根拠
 
-## 現在の方針
+## 方針
 
-- 反応器側は主に Python で扱う想定である。
-- 分離機側は主に HYSYS で扱う想定である。
-- 両者は独立ではなく、最終的には接続して整合を取る前提である。
-- 可能であれば Python 側の自動化範囲を広げるが、実際の運用は課題の進行に応じて決める。
-
-## 現状
-
-- 反応器モデルは Python 側に実装済みである。
-- 既定の反応器ケースは `uv run run-reactor-case` で実行できる。
-- 反応器出口を HYSYS 分離系へ渡すプラントワンパス実行は `uv run run-plant-once` で実行できる。
-- 目標 SM product 流量に合わせる高速 fresh feed 調整は `uv run tune-plant-feed` で実行できる。
-- production target で求めた feed 条件から、正式な recycle 収束計算を `uv run run-plant-convergence` で実行できる。
-- HYSYS case を開いたまま recycle 収束後に全体コスト評価まで行う入口は `uv run fast-plant-convergence-cost` で実行できる。
-- default 条件としてまとめた Steam/EB 比、反応器条件、分離器条件で全体コスト評価を行う入口は `uv run run-default-cost` で実行できる。
-- radial 反応器の簡易利益 Optuna tuning は `uv run python -m process_sim.optimization.runner.radial_simple_optuna` で実行できる。
-- HYSYS ケースの調査用スクリプトと部分最適化スクリプトは `scripts/` にある。
-- 分離機は HYSYS ケース側に構築されており、Python 側には HYSYS I/O と機器読み取り用のモジュールがある。
-- 既定 HYSYS ケースから蒸留塔、デカンター、冷却器、加熱器、ポンプ、コンプレッサーを読み取り、確認結果を標準出力へ表示できる。
-- `data/diagnostics/` には HYSYS ケースを COM 経由で調査した診断用 JSON を置いている。
-- `plant/economics.py` には暫定的な経済計算が残っている。全体プラントのコスト評価は `plant/cost/` 側で扱う。
+- 反応器側は主に Python で扱う。
+- 分離機側は主に HYSYS で扱う。
 
 ## 参考資料
 
@@ -81,7 +62,7 @@
 
 ```powershell
 git clone https://github.com/Ri4385/process-design-2026.git
-cd process-design-2026
+cd process-design-2026-pb
 uv sync
 ```
 
@@ -261,31 +242,34 @@ src/process_sim/
 - `docs/`
   設計判断、前提条件、作業記録を置く。
 
-### 将来のoptimizationの概略
+## 主要文書
 
-```text
-src/process_sim/optimization/
-  models.py          # 共通の探索範囲型
-  reactor/
-    parameters.py      # 反応器パラメータ範囲と候補条件
-    constraints.py     # 反応器制約
-  separator/
-    parameters.py      # 分離パラメータ範囲
-    constraints.py     # 分離制約
-    hysys_controls.py  # HYSYS操作条件への変換
-  heat_integration/
-    models.py          # 熱流・温度範囲の型
-    composite_curve.py # 与熱/受熱複合線の作成
-    evaluation.py      # HI後の外部負荷評価
-  economics/
-    revenue.py         # 製品・副生成物収入の計算
-    operating_cost.py  # 原料・用役・電力費の計算
-    equipment_cost.py  # 機器費の年換算計算
-  objective/
-    profit.py          # 経済収支の評価関数
-  runner/
-    optuna_runner.py   # Optuna study の実行入口
-```
+- `docs/cost.md`
+  コスト式、単価、経済収支の評価条件。
+- `docs/overview.md`
+  プロセス全体の条件、検討メモ、現状整理。人間のみが編集する。
+- `docs/reactor.md`
+  旧反応器モデルの仕様、入出力、ログ項目。
+- `docs/pfr.md`
+  多段断熱 PFR 反応器の実装メモ。
+- `docs/radial-flow-reactor.md`
+  ラジアルフロー反応器の実装メモ。
+- `docs/optimization.md`
+  最適化まわりの探索範囲、候補条件、制約値。
+- `docs/documentation-policy.md`
+  文書の役割分担と運用方針。
+- `docs/reports/`
+  作業記録、試算記録、比較結果。
+
+
+## ドキュメント運用方針
+
+- コード変更時は、必要に応じて関連文書も更新する。
+- 設計上の仮定は一箇所にまとめて管理する方針である。
+- 設計判断は、後から理由を追える形で残す。
+- HYSYS 側の変更も、可能な限り文書として記録する。
+- Codex が行った作業も、後から追跡できる形で残す。
+
 
 ## 実行
 
@@ -476,31 +460,3 @@ v4 探索後の図と上位 trial 表は以下で生成する。
 uv run python scripts/whole_plant_optuna_v4/plot_results.py
 ```
 
-
-## 主要文書
-
-- `docs/cost.md`
-  コスト式、単価、経済収支の評価条件。
-- `docs/overview.md`
-  プロセス全体の条件、検討メモ、現状整理。人間のみが編集する。
-- `docs/reactor.md`
-  旧反応器モデルの仕様、入出力、ログ項目。
-- `docs/pfr.md`
-  多段断熱 PFR 反応器の実装メモ。
-- `docs/radial-flow-reactor.md`
-  ラジアルフロー反応器の実装メモ。
-- `docs/optimization.md`
-  最適化まわりの探索範囲、候補条件、制約値。
-- `docs/documentation-policy.md`
-  文書の役割分担と運用方針。
-- `docs/reports/`
-  作業記録、試算記録、比較結果。
-
-
-## ドキュメント運用方針
-
-- コード変更時は、必要に応じて関連文書も更新する。
-- 設計上の仮定は一箇所にまとめて管理する方針である。
-- 設計判断は、後から理由を追える形で残す。
-- HYSYS 側の変更も、可能な限り文書として記録する。
-- Codex が行った作業も、後から追跡できる形で残す。
