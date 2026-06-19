@@ -430,7 +430,7 @@ class ValidatingPlantRunner:
         reactor_type: ReactorType,
     ) -> None:
         self.plant_runner = plant_runner
-        self.reactor_model = reactor_model
+        self.reactor_model: ReactorModelName = reactor_model
         self.reactor_type = reactor_type
         self.last_reactor_result: ReactorResult | None = None
 
